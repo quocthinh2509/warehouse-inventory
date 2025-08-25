@@ -1,0 +1,20 @@
+{% extends "inventory/base.html" %}
+{% block content %}
+<h2>Lịch sử giao dịch</h2>
+<table role="grid">
+  <thead><tr><th>Thời gian</th><th>Barcode</th><th>SKU</th><th>Action</th><th>From</th><th>To</th><th>Note</th></tr></thead>
+  <tbody>
+  {% for m in logs %}
+    <tr>
+      <td>{{ m.created_at|date:"Y-m-d H:i" }}</td>
+      <td>{{ m.item.barcode_text }}</td>
+      <td>{{ m.item.product.sku }}</td>
+      <td>{{ m.action }}</td>
+      <td>{% if m.from_wh %}{{ m.from_wh.code }}{% else %}-{% endif %}</td>
+      <td>{% if m.to_wh %}{{ m.to_wh.code }}{% else %}-{% endif %}</td>
+      <td>{{ m.note }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

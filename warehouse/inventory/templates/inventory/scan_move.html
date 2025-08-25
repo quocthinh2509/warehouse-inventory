@@ -1,0 +1,48 @@
+{% extends "inventory/base.html" %}
+{% block content %}
+<h2>📦 Scan & Move</h2>
+
+<form method="post" id="scanForm">{% csrf_token %}
+  <div class="grid">
+    <label>Action {{ form.action }}</label>
+    <label>Barcode {{ form.barcode }}</label>
+    <label id="fromWrap">From kho (cho TRANSFER) {{ form.from_wh }}</label>
+    <label id="toWrap">To kho (cho IN/TRANSFER) {{ form.to_wh }}</label>
+  </div>
+  <button type="submit">Ghi</button>
+</form>
+
+<script>
+  const form = document.getElementById('scanForm');
+  const actionSel = document.querySelector('select[name="action"]');
+  const barcodeInput = document.querySelector('input[name="barcode"]');
+  const fromWrap = document.getElementById('fromWrap');
+  const toWrap = document.getElementById('toWrap');
+
+  function toggleWh() {
+    if (actionSel.value === 'IN') {
+      fromWrap.style.display = 'none';
+      toWrap.style.display = '';
+    } else if (actionSel.value === 'OUT') {
+      fromWrap.style.display = 'none';
+      toWrap.style.display = 'none';
+    } else { // TRANSFER
+      fromWrap.style.display = '';
+      toWrap.style.display = '';
+    }
+  }
+  toggleWh();
+  actionSel.addEventListener('change', toggleWh);
+
+  // Tự submit khi scanner quét (scanner thường gửi Enter; nếu không, ta auto sau 200ms idle)
+  let t;
+  barcodeInput.addEventListener('input', ()=>{
+    clearTimeout(t);
+    if (barcodeInput.value.length >= 4) {
+      t = setTimeout(()=> form.submit(), 220);
+    }
+  });
+  // focus lại sau load
+  barcodeInput.focus();
+</script>
+{% endblock %}

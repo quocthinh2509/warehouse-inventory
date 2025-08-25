@@ -1,0 +1,115 @@
+{% extends "inventory/base.html" %}
+{% block title %}Generate Labels{% endblock %}
+
+{% block extra_head %}
+<style>
+  .gen-wrap{max-width:1100px;margin:0 auto}
+  .gen-h2{font-size:28px;font-weight:700;margin:6px 0 16px}
+  .gen-card{background:#0b1220;border:1px solid #263247;border-radius:12px}
+  .gen-body{padding:16px}
+  .gen-grid{display:grid;grid-template-columns:1fr 1fr 160px;gap:12px}
+  .gen-field{display:flex;flex-direction:column;gap:6px}
+  .gen-label{font-size:14px;opacity:.9}
+  input.gen-input, select.gen-select{padding:10px;border-radius:8px;border:1px solid #2a3a50;background:#0e1625;color:#e6edf3}
+  /* áp dụng style cho field form mặc định của Django nếu không gắn class */
+  #id_qty, #id_warehouse{padding:10px;border-radius:8px;border:1px solid #2a3a50;background:#0e1625;color:#e6edf3;width:100%}
+  .gen-actions{display:flex;gap:12px;align-items:center;margin-top:14px;flex-wrap:wrap}
+  .gen-check{display:flex;align-items:center;gap:8px}
+  .btn-primary{padding:12px 18px;border-radius:10px;border:0;background:#0ea5b8;color:#001018;font-weight:700;cursor:pointer}
+  .btn-primary:hover{filter:brightness(1.1)}
+  .btn-ghost{padding:10px 14px;border-radius:10px;border:1px solid #2a3a50;background:#0e1625;color:#e6edf3;cursor:pointer}
+  .gen-note{font-size:14px;opacity:.8}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="gen-wrap">
+  <h2 class="gen-h2">🧾 Generate Labels</h2>
+
+  {# Nhúng danh sách sản phẩm dạng JSON an toàn để sync SKU <-> Tên #}
+  {{ products|json_script:"js-products" }}
+
+  {# Panel hiển thị sau khi in xong (redirect có ?batch=...) #}
+  {% if last_batch %}
+    <div class="gen-card" style="margin-bottom:14px">
+      <div class="gen-body" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+        <div>✅ Đã tạo tem cho đợt in <code>{{ last_batch }}</code></div>
+        <a class="btn-primary" href="{% url 'download_batch' last_batch %}">⬇️ Tải ZIP tem</a>
+        <a class="btn-ghost" href="{{ media_url }}labels/{{ last_batch }}/" target="_blank">Mở thư mục</a>
+      </div>
+    </div>
+  {% endif %}
+
+  <form method="post" id="form-generate" autocomplete="off" class="gen-card">
+    {% csrf_token %}
+    <div class="gen-body">
+      <div class="gen-grid">
+        <!-- SKU -->
+        <div class="gen-field">
+          <label class="gen-label" for="f-sku">SKU</label>
+          <input id="f-sku" name="sku" class="gen-input" list="dl-sku" required>
+          <datalist id="dl-sku">
+            {% for p in products %}
+              <option value="{{ p.sku }}">{{ p.name }}</option>
+            {% endfor %}
+          </datalist>
+        </div>
+
+        <!-- Tên sản phẩm -->
+        <div class="gen-field">
+          <label class="gen-label" for="f-name">Tên sản phẩm</label>
+          <input id="f-name" name="name" class="gen-input" list="dl-name" required>
+          <datalist id="dl-name">
+            {% for p in products %}
+              <option value="{{ p.name }}">{{ p.sku }}</option>
+            {% endfor %}
+          </datalist>
+        </div>
+
+        <!-- Số lượng -->
+        <div class="gen-field">
+          <label class="gen-label" for="id_qty">Số lượng</label>
+          {{ form.qty|safe }}
+        </div>
+      </div>
+
+      <div class="gen-actions">
+        <label class="gen-check">
+          {{ form.mark_in|safe }}
+          <span>Ghi nhận nhập kho ngay</span>
+        </label>
+
+        <div style="min-width:260px">
+          <label class="gen-label" for="id_warehouse">Kho nhập</label>
+          {{ form.warehouse|safe }}
+        </div>
+      </div>
+
+      <div class="gen-actions">
+        <button type="submit" class="btn-primary">Generate</button>
+        <span class="gen-note">Ảnh tem sẽ lưu ở <code>/media/labels/</code> — mỗi lần in tạo thư mục <code>YYYYMMDD-HHMMSS-SKU</code>.</span>
+      </div>
+    </div>
+  </form>
+</div>
+
+<script>
+/* ====== Auto-fill SKU ↔ Name ====== */
+(function(){
+  const DATA = JSON.parse(document.getElementById('js-products').textContent || '[]');
+
+  const bySku  = new Map();  // sku -> name
+  const byName = new Map();  // name -> sku
+  for (const p of DATA) { bySku.set(p.sku, p.name); byName.set(p.name, p.sku); }
+
+  const skuEl  = document.getElementById('f-sku');
+  const nameEl = document.getElementById('f-name');
+
+  const fillBySku  = () => { const v = skuEl.value.trim();  if (bySku.has(v))  nameEl.value = bySku.get(v); };
+  const fillByName = () => { const v = nameEl.value.trim(); if (byName.has(v)) skuEl.value = byName.get(v); };
+
+  ['input','change','blur'].forEach(e => skuEl.addEventListener(e,  fillBySku));
+  ['input','change','blur'].forEach(e => nameEl.addEventListener(e, fillByName));
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% extends "inventory/base.html" %}
+{% block content %}
+<h2>{{ title }}</h2>
+<form method="post" class="grid">{% csrf_token %}
+  <div>
+    <label>SKU</label>
+    {{ form.sku }}
+  </div>
+  <div>
+    <label>Tên sản phẩm</label>
+    {{ form.name }}
+  </div>
+  <div>
+    <button type="submit">Lưu</button>
+    <a href="{% url 'product_list' %}" role="button" class="secondary">Huỷ</a>
+  </div>
+</form>
+{% if form.errors %}
+  <article class="message-error">{{ form.errors }}</article>
+{% endif %}
+{% endblock %}

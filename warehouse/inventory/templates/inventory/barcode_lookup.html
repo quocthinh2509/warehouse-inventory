@@ -1,0 +1,45 @@
+{% extends "inventory/base.html" %}
+{% block content %}
+<h2>Tra cứu theo barcode</h2>
+<form method="post" class="grid">{% csrf_token %}
+  <div>
+    <input name="barcode" placeholder="NX-100ML-000001" required autofocus>
+  </div>
+  <div>
+    <button type="submit">Tra cứu</button>
+  </div>
+</form>
+{% if item %}
+  <article>
+    <h3>Thông tin sản phẩm</h3>
+    <p><strong>Barcode:</strong> {{ item.barcode_text }}</p>
+    <p><strong>SKU:</strong> {{ item.product.sku }} — {{ item.product.name }}</p>
+    <p><strong>Kho hiện tại:</strong> {% if item.warehouse %}{{ item.warehouse.code }}{% else %}-{% endif %}</p>
+    <p><strong>Status:</strong> {{ item.status }}</p>
+  </article>
+  <h3>Lịch sử di chuyển</h3>
+  <ul class="history-list">
+    {% for m in moves %}
+      <li>{{ m.created_at|date:"Y-m-d H:i" }} — {{ m.action }}
+          ({% if m.from_wh %}{{ m.from_wh.code }}{% else %}-{% endif %} → {% if m.to_wh %}{{ m.to_wh.code }}{% else %}-{% endif %})
+      </li>
+    {% empty %}
+      <li>Chưa có log.</li>
+    {% endfor %}
+  </ul>
+{% endif %}
+<style>
+  .history-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .history-list li {
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .history-list li:last-child {
+    border-bottom: none;
+  }
+</style>
+{% endblock %}

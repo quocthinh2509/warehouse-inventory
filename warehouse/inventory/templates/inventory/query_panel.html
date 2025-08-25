@@ -1,0 +1,121 @@
+{% extends "inventory/base.html" %}
+{% block title %}Query Panel{% endblock %}
+{% block content %}
+<div class="qp-page">
+  <div class="qp-container">
+    <div class="qp-titlebar">
+      <h1>Database Query Panel</h1>
+      <a href="{% url 'query_panel' %}{% if selected %}?table={{ selected }}&clear=1{% endif %}" role="button" class="secondary">Clear Query</a>
+    </div>
+    <div class="qp-grid">
+      <div class="qp-card qp-left">
+        <div class="qp-header">Database Tables</div>
+        <div class="qp-list">
+          {% if tables %}
+            {% for t in tables %}
+              <a class="qp-item {% if t.name == selected %}active{% endif %}" href="{% url 'query_panel' %}?table={{ t.name }}">
+                {{ t.name }}
+                <small>{% if t.type %}{{ t.type }}{% else %}BASE TABLE{% endif %}</small>
+              </a>
+            {% endfor %}
+          {% else %}
+            <div class="qp-pane qp-muted">Không thấy bảng nào.</div>
+          {% endif %}
+        </div>
+      </div>
+      <div>
+        <div class="qp-card">
+          <div class="qp-viewbar">
+            Currently viewing{% if selected_type %} {{ selected_type|lower }}:{% endif %} <b>{{ selected|default:"(chưa chọn bảng)" }}</b>
+            {% if columns %}
+              <div class="qp-cols">
+                {% for c in columns %}<span class="qp-pill">{{ c }}</span>{% endfor %}
+              </div>
+            {% endif %}
+          </div>
+          <div class="qp-pane">
+            <div class="qp-muted">SQL Query:</div>
+            <form method="post">
+              {% csrf_token %}
+              <textarea name="sql" class="qp-sql" spellcheck="false">{{ sql }}</textarea>
+              <div class="qp-actions">
+                <button type="submit" name="run" value="1">Execute Query</button>
+                {% if selected %}<button type="button" class="secondary" onclick="setSample()">Sample Query</button>{% endif %}
+              </div>
+              <div class="qp-muted">Chỉ cho phép <code>SELECT</code>.</div>
+              {% if error %}<div class="qp-error">{{ error }}</div>{% endif %}
+              {% if messages %}
+                {% for m in messages %}
+                  <div class="qp-{{ m.tags|default:'success' }}">{{ m }}</div>
+                {% endfor %}
+              {% endif %}
+            </form>
+          </div>
+        </div>
+        <div class="qp-card">
+          <div class="qp-results-head">
+            <div>Query Results</div>
+            <div class="qp-badges">
+              <span>Rows returned: {{ rows_count|default:0 }}</span>
+              <span class="qp-scroll-hint">← Scroll horizontally to view all columns →</span>
+              {% if status_text %}<span class="qp-success">{{ status_text }}</span>{% endif %}
+            </div>
+          </div>
+          <div class="qp-table-wrap">
+            {% if result %}
+              <table class="qp-table">
+                <thead><tr>{% for c in result.cols %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+                <tbody>
+                  {% for r in result.rows %}
+                    <tr>{% for v in r %}<td>{{ v }}</td>{% endfor %}</tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% else %}
+              <div class="qp-pane qp-muted">Không có kết quả hiển thị.</div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  function setSample() {
+    const t = "{{ selected }}";
+    if (!t) return;
+    const ta = document.querySelector('textarea.qp-sql');
+    ta.value = `SELECT * FROM ${t} LIMIT 100`;
+    ta.focus();
+  }
+</script>
+<style>
+  .qp-page { background: var(--background); padding: 1.5rem 0; }
+  .qp-container { max-width: 1200px; margin: 0 auto; }
+  .qp-titlebar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+  .qp-h1 { font-size: 1.75rem; font-weight: 700; margin: 0; }
+  .qp-grid { display: grid; grid-template-columns: 320px 1fr; gap: 1.25rem; }
+  .qp-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; }
+  .qp-left .qp-header { padding: 0.875rem 1.125rem; border-bottom: 1px solid var(--border); font-weight: 600; text-align: center; }
+  .qp-list { max-height: calc(100vh - 260px); overflow: auto; padding: 0.5rem; }
+  .qp-item { display: block; padding: 0.625rem 0.75rem; border-radius: 8px; color: var(--text); text-decoration: none; border: 1px solid transparent; }
+  .qp-item small { display: block; color: var(--muted); font-size: 0.75rem; margin-top: 0.125rem; }
+  .qp-item:hover { background: var(--border); border-color: var(--border); }
+  .qp-item.active { background: #0b2a55; border-color: #325bbf; }
+  .qp-viewbar { background: var(--background); border-bottom: 1px solid var(--border); padding: 0.75rem 1.125rem; border-radius: 12px 12px 0 0; }
+  .qp-viewbar b { color: #fff; }
+  .qp-cols { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 0.5rem; }
+  .qp-pill { padding: 0.125rem 0.5rem; border: 1px solid var(--border); border-radius: 999px; font-size: 0.75rem; background: var(--background); }
+  .qp-muted { color: var(--muted); font-size: 0.875rem; }
+  .qp-sql { min-height: 140px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .qp-actions { display: flex; gap: 0.625rem; margin-top: 0.75rem; }
+  .qp-results-head { display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1.125rem; border-bottom: 1px solid var(--border); }
+  .qp-badges { display: flex; align-items: center; gap: 0.875rem; color: var(--muted); font-size: 0.875rem; }
+  .qp-scroll-hint { color: var(--muted); font-size: 0.75rem; }
+  .qp-success { color: var(--success); }
+  .qp-error { color: var(--error); }
+  .qp-table-wrap { overflow: auto; max-height: 60vh; }
+  .qp-table th, .qp-table td { padding: 0.625rem 0.75rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .qp-table th { background: var(--background); position: sticky; top: 0; z-index: 1; }
+</style>
+{% endblock %}

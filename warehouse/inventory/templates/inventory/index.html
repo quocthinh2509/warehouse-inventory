@@ -1,0 +1,10 @@
+{% extends "inventory/base.html" %}
+{% block content %}
+<h1>Hệ thống quản lý sản phẩm</h1>
+<div class="grid">
+  <a role="button" href="{% url 'generate_labels' %}">Tạo tem (nhập mới)</a>
+  <a role="button" href="{% url 'scan_move' %}">Quét IN/OUT/TRANSFER</a>
+  <a role="button" href="{% url 'dashboard' %}">Dashboard</a>
+  <a role="button" href="{% url 'query_panel' %}">Query Panel</a>
+</div>
+{% endblock %}

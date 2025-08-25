@@ -1,0 +1,76 @@
+{% extends "inventory/base.html" %}
+{% block content %}
+<h2>Dashboard</h2>
+<div class="grid">
+  <article>
+    <header>Tổng IN</header>
+    <h3>{{ total_in }}</h3>
+  </article>
+  <article>
+    <header>Tổng OUT</header>
+    <h3>{{ total_out }}</h3>
+  </article>
+  <article>
+    <header>Transfers</header>
+    <h3>{{ total_transfer }}</h3>
+  </article>
+</div>
+
+<h3>Log gần nhất</h3>
+<table role="grid">
+  <thead>
+    <tr>
+      <th>Thời gian</th>
+      <th>Barcode</th>
+      <th>SKU</th>
+      <th>Action</th>
+      <th>From</th>
+      <th>To</th>
+      <th>Note</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for m in logs %}
+      <tr>
+        <td>{{ m.created_at|date:"Y-m-d H:i" }}</td>
+        <td>{{ m.item.barcode_text }}</td>
+        <td>{{ m.item.product.sku }}</td>
+        <td>{{ m.action }}</td>
+        <td>{% if m.from_wh %}{{ m.from_wh.code }}{% else %}-{% endif %}</td>
+        <td>{% if m.to_wh %}{{ m.to_wh.code }}{% else %}-{% endif %}</td>
+        <td>{{ m.note }}</td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="7">Chưa có log.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
+
+{% comment %} {% extends "inventory/base.html" %}
+{% block content %}
+<h2>Dashboard</h2>
+<div class="grid">
+  <article><header>Tổng IN</header><h3>{{ total_in }}</h3></article>
+  <article><header>Tổng OUT</header><h3>{{ total_out }}</h3></article>
+  <article><header>Transfers</header><h3>{{ total_transfer }}</h3></article>
+</div>
+
+<h3>Log gần nhất</h3>
+<table role="grid">
+  <thead><tr><th>Thời gian</th><th>Barcode</th><th>SKU</th><th>Action</th><th>From</th><th>To</th><th>Note</th></tr></thead>
+  <tbody>
+  {% for m in logs %}
+    <tr>
+      <td>{{ m.created_at|date:"Y-m-d H:i" }}</td>
+      <td>{{ m.item.barcode_text }}</td>
+      <td>{{ m.item.product.sku }}</td>
+      <td>{{ m.action }}</td>
+      <td>{% if m.from_wh %}{{ m.from_wh.code }}{% else %}-{% endif %}</td>
+      <td>{% if m.to_wh %}{{ m.to_wh.code }}{% else %}-{% endif %}</td>
+      <td>{{ m.note }}</td>
+    </tr>
+  {% empty %}<tr><td colspan="7">Chưa có log.</td></tr>{% endfor %}
+  </tbody>
+</table>
+{% endblock %} {% endcomment %}
