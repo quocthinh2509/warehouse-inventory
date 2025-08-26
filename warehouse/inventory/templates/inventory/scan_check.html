@@ -1,0 +1,74 @@
+{% extends "inventory/base.html" %}
+{% block title %}Check Barcode{% endblock %}
+
+{% block extra_head %}
+<style>
+  .chk-wrap{max-width:980px;margin:0 auto}
+  .chk-hero{background:linear-gradient(135deg,rgba(14,165,233,.12),rgba(2,132,199,.06));border:1px solid var(--border);border-radius:16px;padding:18px 20px;margin-bottom:18px}
+  .chk-hero h2{margin:0;display:flex;align-items:center;gap:10px;font-size:28px}
+  .subtabs{display:flex;gap:8px;margin-top:10px}
+  .subtabs a{padding:8px 12px;border:1px solid var(--border);border-radius:10px;text-decoration:none;color:var(--text);background:#0b1220}
+  .subtabs a.active{background:#0ea5e9;color:#001018;border-color:#0ea5e9;font-weight:700}
+  .card{background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px}
+  .history-list{list-style:none;padding:0;margin:0}
+  .history-list li{padding:0.75rem;border-bottom:1px solid var(--border)}
+  .history-list li:last-child{border-bottom:0}
+  .form-row{display:grid;grid-template-columns:1fr 160px;gap:12px}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="chk-wrap">
+  <div class="chk-hero">
+    <h2>🔎 Check Barcode</h2>
+    <div class="subtabs">
+      <a href="{% url 'scan_scan' %}" class="{% if subtab == 'scan' %}active{% endif %}">Scan</a>
+      <a href="{% url 'scan_check' %}" class="{% if subtab == 'check' %}active{% endif %}">Check</a>
+    </div>
+  </div>
+
+  <article class="card">
+    <form method="post" class="grid" autocomplete="off">{% csrf_token %}
+      <div class="form-row">
+        <input name="barcode" placeholder="VD: 000126082500001" required autofocus inputmode="numeric">
+        <button type="submit">Tra cứu</button>
+      </div>
+    </form>
+  </article>
+
+  {% if item %}
+    <article class="card">
+      <h3 style="margin-top:0">Thông tin sản phẩm</h3>
+      <p><strong>Barcode:</strong> {{ item.barcode_text }}</p>
+      <p><strong>SKU:</strong> {{ item.product.sku }} — {{ item.product.name }}</p>
+      <p><strong>Kho hiện tại:</strong> {% if item.warehouse %}{{ item.warehouse.code }}{% else %}-{% endif %}</p>
+      <p><strong>Status:</strong> {{ item.status }}</p>
+    </article>
+
+    <article class="card">
+      <h3 style="margin-top:0">🧾 Lịch sử di chuyển</h3>
+      <ul class="history-list">
+        {% for m in moves %}
+          <li>{{ m.created_at|date:"Y-m-d H:i" }} — {{ m.action }}
+            ({% if m.from_wh %}{{ m.from_wh.code }}{% else %}-{% endif %}
+             → {% if m.to_wh %}{{ m.to_wh.code }}{% else %}-{% endif %})
+            {% if m.tag %} · Đợt #{{ m.tag }}{% endif %}
+            {% if m.type_action %} · {{ m.type_action }}{% endif %}
+          </li>
+        {% empty %}
+          <li>Chưa có log.</li>
+        {% endfor %}
+      </ul>
+    </article>
+  {% endif %}
+</div>
+
+<script>
+/* auto submit dự phòng khi quét */
+(function(){
+  const f=document.querySelector('form[autocomplete="off"]'); const b=f?.querySelector('input[name="barcode"]');
+  if(!f||!b) return; let t;
+  b.addEventListener('input', ()=>{ clearTimeout(t); if(b.value.trim().length>=6){ t=setTimeout(()=>f.submit(),220);} });
+})();
+</script>
+{% endblock %}

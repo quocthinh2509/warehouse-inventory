@@ -1,13 +1,9 @@
 {% extends "inventory/base.html" %}
 {% block content %}
 <h2>Xoá sản phẩm</h2>
-<p>Bạn chắc chắn muốn xoá: <strong>{{ obj.sku }} - {{ obj.name }}</strong>?</p>
-<form method="post" class="grid">{% csrf_token %}
-  <div>
-    <button type="submit" class="contrast">Xoá</button>
-  </div>
-  <div>
-    <a href="{% url 'product_list' %}" role="button" class="secondary">Huỷ</a>
-  </div>
+<p>Bạn chắc chắn muốn xoá: <strong>{{ product.sku }}</strong> - {{ product.name }} (Code4: {{ product.code4 }})?</p>
+<form method="post">{% csrf_token %}
+  <button type="submit">Xoá</button>
+  <a href="{% url 'product_list' %}">Huỷ</a>
 </form>
 {% endblock %}

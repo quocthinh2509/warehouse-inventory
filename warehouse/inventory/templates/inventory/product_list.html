@@ -1,43 +1,34 @@
 {% extends "inventory/base.html" %}
 {% block content %}
-<h2>📚 Danh mục hàng hoá</h2>
-<form method="get" class="grid" style="margin-bottom: 1rem;">
-  <div>
-    <input type="text" name="q" value="{{ q }}" placeholder="Tìm SKU hoặc tên..." />
-  </div>
-  <div>
-    <button type="submit">Tìm</button>
-    <a href="{% url 'product_create' %}" role="button">+ Tạo mới</a>
-  </div>
+<h2>Products</h2>
+
+<form method="get" class="flex gap">
+  <input name="q" value="{{ q }}" placeholder="Tìm SKU / Name / Code4">
+  <button type="submit">Tìm</button>
+  <a class="btn" href="{% url 'product_create' %}">+ Tạo sản phẩm</a>
 </form>
-<table role="grid">
+
+<table class="table">
   <thead>
-    <tr><th>SKU</th><th>Tên sản phẩm</th><th style="width: 140px; text-align: right;">Hành động</th></tr>
+    <tr>
+      <th>ID</th><th>SKU</th><th>Name</th><th>Code4</th><th></th>
+    </tr>
   </thead>
   <tbody>
-    {% for p in page_obj %}
+    {% for p in products %}
       <tr>
+        <td>{{ p.id }}</td>
         <td>{{ p.sku }}</td>
         <td>{{ p.name }}</td>
-        <td style="text-align: right;">
-          <a href="{% url 'product_update' p.id %}">Sửa</a>
+        <td><code>{{ p.code4 }}</code></td>
+        <td class="text-right">
+          <a href="{% url 'product_update' p.id %}">Sửa</a> |
           <a href="{% url 'product_delete' p.id %}">Xoá</a>
         </td>
       </tr>
     {% empty %}
-      <tr><td colspan="3">Chưa có sản phẩm</td></tr>
+      <tr><td colspan="5">Chưa có sản phẩm.</td></tr>
     {% endfor %}
   </tbody>
 </table>
-<nav>
-  <ul class="pagination">
-    {% if page_obj.has_previous %}
-      <li><a href="?q={{ q }}&page={{ page_obj.previous_page_number }}">« Trước</a></li>
-    {% endif %}
-    <li>Trang {{ page_obj.number }}/{{ page_obj.paginator.num_pages }}</li>
-    {% if page_obj.has_next %}
-      <li><a href="?q={{ q }}&page={{ page_obj.next_page_number }}">Sau »</a></li>
-    {% endif %}
-  </ul>
-</nav>
 {% endblock %}

@@ -1,48 +1,216 @@
 {% extends "inventory/base.html" %}
-{% block content %}
-<h2>📦 Scan & Move</h2>
+{% block title %}Scan & Check{% endblock %}
 
-<form method="post" id="scanForm">{% csrf_token %}
-  <div class="grid">
-    <label>Action {{ form.action }}</label>
-    <label>Barcode {{ form.barcode }}</label>
-    <label id="fromWrap">From kho (cho TRANSFER) {{ form.from_wh }}</label>
-    <label id="toWrap">To kho (cho IN/TRANSFER) {{ form.to_wh }}</label>
+{% block extra_head %}
+<style>
+  .subtabs{display:flex;gap:8px;margin:10px 0 0}
+  .subtabs a{padding:8px 12px;border:1px solid var(--border);border-radius:10px;text-decoration:none;color:var(--text);background:#0b1220}
+  .subtabs a.active{background:#0ea5e9;color:#001018;border-color:#0ea5e9;font-weight:700}
+
+  .scan-wrap{max-width:980px;margin:0 auto}
+  .scan-hero{background:linear-gradient(135deg,rgba(14,165,233,.12),rgba(2,132,199,.06));border:1px solid var(--border);border-radius:16px;padding:18px 20px;margin-bottom:18px}
+  .scan-hero h2{margin:0;display:flex;align-items:center;gap:10px;font-size:28px}
+  .card{background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px}
+  .grid4{display:grid;grid-template-columns:1fr 1fr 1fr 120px;gap:12px}
+  .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+  .muted{color:var(--muted)}
+  .pill{display:inline-flex;gap:8px;align-items:center;background:#0b1220;border:1px solid #263247;padding:8px 12px;border-radius:999px}
+  .log ul{margin:0;padding-left:18px}
+  .hint{font-size:12px;color:var(--muted);margin-top:4px}
+  .nowrap{white-space:nowrap}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="scan-wrap">
+  <div class="scan-hero">
+    <h2>📦 Scan &amp; Check</h2>
+    <div class="subtabs">
+      <a href="{% url 'scan_scan' %}" class="{% if subtab == 'scan' %}active{% endif %}">Scan</a>
+      <a href="{% url 'scan_check' %}" class="{% if subtab == 'check' %}active{% endif %}">Check</a>
+    </div>
   </div>
-  <button type="submit">Ghi</button>
-</form>
+
+  {{ tag_map|json_script:"js-tagmap" }}
+
+  <!-- form ẩn dùng cho nút Kết thúc ghi (tránh form lồng nhau) -->
+  <form id="stopForm" method="post" action="{% url 'scan_stop' %}" style="display:none">
+    {% csrf_token %}
+  </form>
+
+  <!-- Khối 1: Bắt đầu ghi -->
+  <article class="card">
+    <form method="post" action="{% url 'scan_start' %}">
+      {% csrf_token %}
+      <div class="grid4">
+        <div>
+          <label>Action</label>
+          <select name="action" id="f-action" {% if scan_session.active %}disabled{% endif %}>
+            <option value="IN"  {% if start_form.initial.action == "IN" %}selected{% endif %}>IN</option>
+            <option value="OUT" {% if start_form.initial.action == "OUT" %}selected{% endif %}>OUT</option>
+          </select>
+        </div>
+
+        <div>
+          <label>Action type</label>
+          <select name="action_type" id="f-type"
+                  data-initial="{{ start_form.initial.action_type|default:'' }}"
+                  {% if scan_session.active %}disabled{% endif %}>
+            {% if scan_session.active %}
+              <option value="{{ scan_session.type_action }}" selected>{{ scan_session.type_action }}</option>
+            {% else %}
+              {% for val,label in start_form.fields.action_type.choices %}
+                <option value="{{ val }}" {% if start_form.initial.action_type == val %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            {% endif %}
+          </select>
+        </div>
+
+        <div>
+          <label id="wh-label">Kho</label>
+          <select name="wh" id="f-wh" {% if scan_session.active %}disabled{% endif %}>
+            <option value="">-- Chọn kho --</option>
+            {% for wh in start_form.fields.wh.queryset %}
+              <option value="{{ wh.id }}" {% if scan_session.wh_id == wh.id %}selected{% endif %}>{{ wh.code }}</option>
+            {% endfor %}
+          </select>
+          <div class="hint" id="tag-hint" aria-live="polite"></div>
+        </div>
+
+        <div>
+          <label>Đợt</label>
+          <select name="tag" id="f-tag"
+                  data-initial="{{ start_form.initial.tag|default:'' }}"
+                  {% if scan_session.active %}disabled{% endif %}></select>
+        </div>
+      </div>
+
+      <div class="actions">
+        {% if scan_session.active %}
+          <span class="pill nowrap">Đợt: <strong>#{{ scan_session.tag }}</strong></span>
+          <span class="muted">Khoá cấu hình — đang ghi.</span>
+          <button type="submit" disabled>Đang ghi...</button>
+          <button type="submit" form="stopForm" class="secondary">⏹️ Kết thúc ghi</button>
+        {% else %}
+          <button type="submit">▶️ Bắt đầu ghi</button>
+          <span class="muted">Chọn action / type / kho. Đợt sẽ tự nhảy theo kho + ngày.</span>
+        {% endif %}
+      </div>
+    </form>
+  </article>
+
+  <!-- Khối 2: Quét barcode -->
+  <article class="card">
+    <!-- ⤵️ đổi action sang scan_scan để post đúng /scan-check/scan -->
+    <form method="post" action="{% url 'scan_scan' %}" id="scanForm">
+      {% csrf_token %}
+      <label>Barcode</label>
+      <input name="barcode" id="f-barcode" placeholder="Quét barcode..." {% if not scan_session.active %}disabled{% endif %} autofocus>
+      <div class="actions">
+        <button type="submit" {% if not scan_session.active %}disabled{% endif %}>Ghi</button>
+        <button type="button" class="secondary" onclick="document.getElementById('f-barcode').select();" {% if not scan_session.active %}disabled{% endif %}>Chọn lại</button>
+      </div>
+      <div class="log">
+        <small class="muted">Đã quét (gần đây nhất):</small>
+        <ul>
+          {% for c in scan_session.scanned %}
+            <li>{{ c }}</li>
+          {% empty %}
+            <li class="muted">Chưa có mã nào trong phiên.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </form>
+  </article>
+</div>
 
 <script>
-  const form = document.getElementById('scanForm');
-  const actionSel = document.querySelector('select[name="action"]');
-  const barcodeInput = document.querySelector('input[name="barcode"]');
-  const fromWrap = document.getElementById('fromWrap');
-  const toWrap = document.getElementById('toWrap');
-
-  function toggleWh() {
-    if (actionSel.value === 'IN') {
-      fromWrap.style.display = 'none';
-      toWrap.style.display = '';
-    } else if (actionSel.value === 'OUT') {
-      fromWrap.style.display = 'none';
-      toWrap.style.display = 'none';
-    } else { // TRANSFER
-      fromWrap.style.display = '';
-      toWrap.style.display = '';
-    }
+/* Nhãn kho đổi theo Action */
+(function(){
+  const active = {{ scan_session.active|yesno:"true,false" }};
+  const actEl = document.getElementById('f-action');
+  const whLabel = document.getElementById('wh-label');
+  function setLabel(){
+    const v = (actEl.value||'IN').toUpperCase();
+    whLabel.textContent = v === 'IN' ? 'Kho (nhập vào)' : 'Kho (xuất từ)';
   }
-  toggleWh();
-  actionSel.addEventListener('change', toggleWh);
+  if (!active) { actEl.addEventListener('change', setLabel); }
+  setLabel();
+})();
 
-  // Tự submit khi scanner quét (scanner thường gửi Enter; nếu không, ta auto sau 200ms idle)
-  let t;
-  barcodeInput.addEventListener('input', ()=>{
-    clearTimeout(t);
-    if (barcodeInput.value.length >= 4) {
-      t = setTimeout(()=> form.submit(), 220);
+/* Action type: đổ options theo Action, giữ lại giá trị hiện có nếu còn hợp lệ */
+(function(){
+  const active = {{ scan_session.active|yesno:"true,false" }};
+  if (active) return;
+  const MAP = {
+    IN:  [["purchase","Nhập mua"],["return_in","Khách trả"],["adjust_in","Điều chỉnh +"]],
+    OUT: [["sale","Xuất bán"],["return_supplier","Trả NCC"],["adjust_out","Điều chỉnh -"]],
+  };
+  const fAct = document.getElementById('f-action');
+  const fType = document.getElementById('f-type');
+  const initial = fType.dataset.initial || "";
+
+  function refillType(){
+    const k=(fAct.value||"IN").toUpperCase(), opts=MAP[k]||[];
+    const prev = fType.value || initial;
+    fType.innerHTML="";
+    let hasPrev = false;
+    opts.forEach(([v,t])=>{
+      const o=document.createElement("option"); o.value=v; o.textContent=t;
+      if (v===prev) { o.selected = true; hasPrev = true; }
+      fType.appendChild(o);
+    });
+    if (!hasPrev && opts.length){ fType.options[0].selected = true; }
+  }
+  fAct.addEventListener('change', refillType);
+  refillType();
+})();
+
+/* Đợt theo kho + action: 1..(max+1) — giữ lại giá trị đang có nếu hợp lệ */
+(function(){
+  const active = {{ scan_session.active|yesno:"true,false" }};
+  if (active) return;
+
+  const TAGMAP = JSON.parse(document.getElementById('js-tagmap').textContent || '{}');
+  const fAct = document.getElementById('f-action');
+  const fWh  = document.getElementById('f-wh');
+  const fTag = document.getElementById('f-tag');
+  const hint = document.getElementById('tag-hint');
+  const initial = parseInt(fTag.dataset.initial || "0", 10);
+
+  function refillTag(){
+    const wh = fWh.value;
+    const act = (fAct.value||"IN").toUpperCase();
+    fTag.innerHTML = "";
+    hint.textContent = "";
+
+    if (!wh) { fTag.disabled = true; return; }
+
+    const max = TAGMAP[`${act}-${wh}`] || 0;
+    const upto = max + 1; // cho chọn 1..max+1
+    for (let i=1; i<=upto; i++){
+      const o=document.createElement('option'); o.value=i; o.textContent=i; fTag.appendChild(o);
     }
-  });
-  // focus lại sau load
-  barcodeInput.focus();
+    fTag.disabled = false;
+
+    const want = (initial && initial>=1 && initial<=upto) ? initial : upto;
+    fTag.value = String(want);
+
+    hint.textContent = `Hôm nay kho đã có ${max} đợt ${act}.`;
+  }
+
+  fAct.addEventListener('change', refillTag);
+  fWh.addEventListener('change', refillTag);
+  refillTag();
+})();
+
+/* Auto submit barcode (dự phòng nếu scanner không gửi Enter) */
+(function(){
+  const b=document.getElementById('f-barcode');
+  if (!b || b.disabled) return;
+  const form=document.getElementById('scanForm');
+  let t; b.addEventListener('input', ()=>{ clearTimeout(t); if (b.value.length>=4) t=setTimeout(()=>form.submit(),200); });
+  setTimeout(()=>{ b.focus(); b.select?.(); }, 100);
+})();
 </script>
 {% endblock %}

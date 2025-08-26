@@ -17,166 +17,59 @@
       --success: #22c55e;
       --error: #ef4444;
     }
-
-    body {
-      background: var(--background);
-      color: var(--text);
-      font-family: system-ui, -apple-system, sans-serif;
-      margin: 0;
-    }
+    body { background: var(--background); color: var(--text); font-family: system-ui,-apple-system,sans-serif; margin: 0; }
 
     nav.container-fluid {
       background: var(--card-bg);
       border-bottom: 1px solid var(--border);
       padding: 1rem;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+      display: flex; justify-content: space-between; align-items: center;
     }
-
-    nav ul {
-      display: flex;
-      gap: 0.5rem;
-      margin: 0;
-      list-style: none;
-    }
-
+    nav ul { display: flex; gap: .5rem; margin: 0; list-style: none; }
     nav ul li a {
-      color: var(--text);
-      text-decoration: none;
-      padding: 0.5rem 1rem;
-      border-radius: 8px;
-      transition: background 0.2s;
+      color: var(--text); text-decoration: none; padding: .5rem 1rem; border-radius: 8px;
+      transition: background .2s, color .2s;
+      border: 1px solid transparent;
     }
+    nav ul li a:hover { background: var(--primary); color: #fff; }
+    nav ul li a.active { background: var(--primary); color: #001018; border-color: var(--primary); }
 
-    nav ul li a:hover {
-      background: var(--primary);
-      color: #fff;
-    }
-
-    main.container {
-      max-width: 1200px;
-      margin: 2rem auto;
-      padding: 1rem;
-    }
-
-    h1, h2, h3, h4 {
-      color: var(--text);
-      margin-bottom: 1.5rem;
-    }
+    main.container { max-width: 1200px; margin: 2rem auto; padding: 1rem; }
+    h1,h2,h3,h4 { color: var(--text); margin-bottom: 1.5rem; }
 
     article, form, table {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.5rem;
-      margin-bottom: 1.5rem;
+      background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem;
     }
-
     button, input[type="submit"], a[role="button"] {
-      background: var(--primary);
-      color: #fff;
-      border: none;
-      padding: 0.75rem 1.5rem;
-      border-radius: 8px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.2s;
+      background: var(--primary); color: #fff; border: none; padding: .75rem 1.5rem;
+      border-radius: 8px; font-weight: 600; cursor: pointer; transition: background .2s;
     }
-
-    button:hover, input[type="submit"]:hover, a[role="button"]:hover {
-      background: var(--primary-hover);
-    }
-    button.contrast {
-      background: var(--error);
-    }
-    button.contrast:hover {
-      background: #dc2626;
-    }
-
-    a[role="button"].secondary, button.secondary {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text);
-    }
-
-    a[role="button"].secondary:hover, button.secondary:hover {
-      background: var(--border);
-    }
+    button:hover, input[type="submit"]:hover, a[role="button"]:hover { background: var(--primary-hover); }
+    button.contrast { background: var(--error); } button.contrast:hover { background: #dc2626; }
+    a[role="button"].secondary, button.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    a[role="button"].secondary:hover, button.secondary:hover { background: var(--border); }
 
     input, select, textarea {
-      background: #111827;
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.75rem;
-      width: 100%;
-      box-sizing: border-box;
+      background: #111827; color: var(--text); border: 1px solid var(--border);
+      border-radius: 8px; padding: .75rem; width: 100%; box-sizing: border-box;
     }
+    table { width: 100%; border-collapse: collapse; overflow-x: auto; display: block; }
+    table th, table td { padding: .75rem; border-bottom: 1px solid var(--border); text-align: left; }
+    table th { background: var(--background); font-weight: 600; position: sticky; top: 0; }
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      overflow-x: auto;
-      display: block;
-    }
-
-    table th, table td {
-      padding: 0.75rem;
-      border-bottom: 1px solid var(--border);
-      text-align: left;
-    }
-
-    table th {
-      background: var(--background);
-      font-weight: 600;
-      position: sticky;
-      top: 0;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-      gap: 1rem;
-    }
-
-    .pagination {
-      display: flex;
-      gap: 1rem;
-      justify-content: center;
-      margin-top: 1rem;
-      list-style: none;
-    }
-
-    .pagination li a {
-      color: var(--text);
-      text-decoration: none;
-      padding: 0.5rem 1rem;
-      border-radius: 8px;
-    }
-
-    .pagination li a:hover {
-      background: var(--primary);
-      color: #fff;
-    }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(250px,1fr)); gap: 1rem; }
+    .pagination { display: flex; gap: 1rem; justify-content: center; margin-top: 1rem; list-style: none; }
+    .pagination li a { color: var(--text); text-decoration: none; padding: .5rem 1rem; border-radius: 8px; }
+    .pagination li a:hover { background: var(--primary); color: #fff; }
 
     .message-success { color: var(--success); }
     .message-error { color: var(--error); }
 
     @media (max-width: 768px) {
-      nav ul {
-        flex-direction: column;
-        align-items: flex-start;
-      }
-
-      main.container {
-        padding: 1rem;
-      }
-
-      table {
-        display: block;
-        overflow-x: auto;
-      }
+      nav ul { flex-direction: column; align-items: flex-start; }
+      main.container { padding: 1rem; }
+      table { display: block; overflow-x: auto; }
     }
   </style>
   {% block extra_head %}{% endblock %}
@@ -185,24 +78,38 @@
   <nav class="container-fluid">
     <ul><li><strong>Warehouse</strong></li></ul>
     <ul>
-      <li><a href="{% url 'index' %}">Home</a></li>
-      <li><a href="{% url 'generate_labels' %}">Generate</a></li>
-      <li><a href="{% url 'scan_move' %}">Scan&Move</a></li>
-      <li><a href="{% url 'dashboard' %}">Dashboard</a></li>
-      <li><a href="{% url 'inventory' %}">Tồn kho</a></li>
-      <li><a href="{% url 'transactions' %}">Giao dịch</a></li>
-      <li><a href="{% url 'barcode_lookup' %}">Tra barcode</a></li>
-      <li><a href="{% url 'product_list' %}">Sản phẩm</a></li>
-      <li><a href="{% url 'query_panel' %}">Query Panel</a></li>
-      <li><a href="/admin/">Admin</a></li>
+      {# Generate #}
+      <li>
+        <a href="{% url 'generate_labels' %}"
+           class="{% if request.path|slice:':10' == '/generate/' %}active{% endif %}">Generate</a>
+      </li>
+
+      {# Scan & Check #}
+      <li>
+        <a href="{% url 'scan_scan' %}" class="{% if request.path|slice:':13' == '/scan-check/' %}contrast{% endif %}">Scan & Check</a>
+      </li>
+
+      {# Dashboard #}
+      <li>
+        <a href="{% url 'dashboard' %}"
+           class="{% if request.path|slice:':11' == '/dashboard/' %}active{% endif %}">Dashboard</a>
+      </li>
+
+      {# Config hub (active nếu /config/ hoặc /queries/ hoặc /products/ hoặc /admin/) #}
+      <li>
+        <a href="{% url 'config_index' %}"
+           class="{% if request.path|slice:':8' == '/config/' or request.path|slice:':9' == '/queries/' or request.path|slice:':10' == '/products/' or request.path|slice:':7' == '/admin/' %}active{% endif %}">Config</a>
+      </li>
     </ul>
   </nav>
+
   <main class="container">
     {% if messages %}
       {% for m in messages %}
         <article class="message-{{ m.tags }}">{{ m }}</article>
       {% endfor %}
     {% endif %}
+
     {% block content %}{% endblock %}
   </main>
 </body>

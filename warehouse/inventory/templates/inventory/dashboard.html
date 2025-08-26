@@ -1,76 +1,245 @@
-{% comment %} {% extends "inventory/base.html" %}
-{% block content %}
-<h2>Dashboard</h2>
-<div class="grid">
-  <article>
-    <header>Tổng IN</header>
-    <h3>{{ total_in }}</h3>
-  </article>
-  <article>
-    <header>Tổng OUT</header>
-    <h3>{{ total_out }}</h3>
-  </article>
-  <article>
-    <header>Transfers</header>
-    <h3>{{ total_transfer }}</h3>
-  </article>
-</div>
+{% extends "inventory/base.html" %}
+{% block title %}Dashboard{% endblock %}
 
-<h3>Log gần nhất</h3>
-<table role="grid">
-  <thead>
-    <tr>
-      <th>Thời gian</th>
-      <th>Barcode</th>
-      <th>SKU</th>
-      <th>Action</th>
-      <th>From</th>
-      <th>To</th>
-      <th>Note</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for m in logs %}
-      <tr>
-        <td>{{ m.created_at|date:"Y-m-d H:i" }}</td>
-        <td>{{ m.item.barcode_text }}</td>
-        <td>{{ m.item.product.sku }}</td>
-        <td>{{ m.action }}</td>
-        <td>{% if m.from_wh %}{{ m.from_wh.code }}{% else %}-{% endif %}</td>
-        <td>{% if m.to_wh %}{{ m.to_wh.code }}{% else %}-{% endif %}</td>
-        <td>{{ m.note }}</td>
-      </tr>
-    {% empty %}
-      <tr><td colspan="7">Chưa có log.</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
+{% block extra_head %}
+<style>
+  /* ⬇️ Mở rộng vùng nội dung (override của base.html) */
+  main.container{max-width:1600px}
+  @media (min-width:1800px){ main.container{max-width:1800px} }
+
+  .dash-page{max-width:100%;}
+
+  /* Hero */
+  .dash-hero{
+    background:linear-gradient(135deg, rgba(14,165,233,.14), rgba(2,132,199,.07));
+    border:1px solid var(--border);
+    border-radius:18px;
+    padding:22px 26px;
+    margin-bottom:18px;
+    display:flex;align-items:center;gap:14px
+  }
+  .dash-hero h2{margin:0;font-size:32px;display:flex;gap:10px;align-items:center}
+  .dash-hero .hint{color:var(--muted);font-size:14px;margin-left:auto}
+
+  /* Cards */
+  .dash-cards{
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(260px,1fr));
+    gap:14px;margin-bottom:14px
+  }
+  .dash-card{
+    background:var(--card-bg);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:16px 18px;
+    box-shadow:0 6px 18px rgba(0,0,0,.18);
+  }
+  .dash-card header{color:var(--muted);font-weight:600}
+  .dash-card h3{margin:.35rem 0 0;font-size:32px}
+
+  /* Filter form */
+  .dash-panel{
+    background:var(--card-bg);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:16px 18px;margin-bottom:14px
+  }
+  .filters{
+    display:grid;
+    grid-template-columns:repeat(6, minmax(180px, 1fr));
+    gap:10px;align-items:end
+  }
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
+  .pill{display:inline-block;padding:4px 10px;border-radius:999px;background:#0b1220;border:1px solid #263247}
+  .muted{color:var(--muted)}
+  .dash-panel input,.dash-panel select{
+    height:44px;font-size:15px
+  }
+  .dash-panel button{height:44px}
+
+  /* Table */
+  .table-card{background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:0}
+  .table-wrap{overflow:auto;max-height:65vh;border-radius:14px}
+  table{min-width:1100px}
+  thead th{position:sticky;top:0;background:#0f172a;z-index:1}
+  th, td{white-space:nowrap}
+  tbody tr:nth-child(odd){background:rgba(255,255,255,.02)}
+  th.sortable a{display:inline-flex;gap:6px;align-items:center;text-decoration:none;color:inherit}
+  .dir-badge{font-size:12px}
+  @media (max-width: 1000px){
+    .filters{grid-template-columns:1fr 1fr}
+  }
+</style>
 {% endblock %}
 
-{% comment %} {% extends "inventory/base.html" %}
 {% block content %}
-<h2>Dashboard</h2>
-<div class="grid">
-  <article><header>Tổng IN</header><h3>{{ total_in }}</h3></article>
-  <article><header>Tổng OUT</header><h3>{{ total_out }}</h3></article>
-  <article><header>Transfers</header><h3>{{ total_transfer }}</h3></article>
+<div class="dash-page">
+  <div class="dash-hero">
+    <h2>📊 Dashboard</h2>
+    <div class="hint">Bộ lọc & báo cáo tức thời</div>
+  </div>
+
+  <!-- Cards -->
+  <div class="dash-cards">
+    <article class="dash-card">
+      <header>Tổng IN (theo bộ lọc)</header>
+      <h3>{{ total_in }}</h3>
+    </article>
+    <article class="dash-card">
+      <header>Tổng OUT (theo bộ lọc)</header>
+      <h3>{{ total_out }}</h3>
+    </article>
+    <article class="dash-card">
+      <header>Transfers (theo bộ lọc)</header>
+      <h3>{{ total_transfer }}</h3>
+    </article>
+  </div>
+
+  <!-- Filters -->
+  <form id="filterForm" method="get" class="dash-panel">
+    <div class="filters">
+      <div>
+        <label class="muted">Từ ngày</label>
+        <input type="date" name="start" value="{{ start }}">
+      </div>
+      <div>
+        <label class="muted">Đến ngày</label>
+        <input type="date" name="end" value="{{ end }}">
+      </div>
+      <div>
+        <label class="muted">Action</label>
+        <select name="action">
+          <option value="">(Tất cả)</option>
+          <option value="IN"  {% if action == "IN" %}selected{% endif %}>IN</option>
+          <option value="OUT" {% if action == "OUT" %}selected{% endif %}>OUT</option>
+          <option value="TRANSFER" {% if action == "TRANSFER" %}selected{% endif %}>TRANSFER</option>
+        </select>
+      </div>
+      <div>
+        <label class="muted">Kho</label>
+        <select name="wh">
+          <option value="">(Tất cả)</option>
+          {% for w in warehouses %}
+            <option value="{{ w.id }}" {% if wh_id == w.id|stringformat:"s" %}selected{% endif %}>{{ w.code }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="muted">Tìm kiếm</label>
+        <input type="search" name="q" value="{{ q }}" placeholder="barcode / SKU / tên / note">
+      </div>
+      <div>
+        <label class="muted">Hiển thị</label>
+        <select name="per">
+          {% for n in per_options %}
+            <option value="{{ n }}" {% if per == n %}selected{% endif %}>{{ n }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <input type="hidden" name="sort" id="sortInput" value="{{ sort }}">
+      <input type="hidden" name="dir"  id="dirInput"  value="{{ dir }}">
+      <input type="hidden" name="export" id="exportInput" value="">
+      <button type="submit">Áp dụng</button>
+      <a href="{% url 'dashboard' %}" role="button" class="secondary">Reset</a>
+      <button type="button" class="secondary" onclick="downloadCSV()">⬇️ Tải CSV</button>
+      <span class="muted">Kết quả: <span class="pill">{{ total_rows }}</span> bản ghi</span>
+    </div>
+  </form>
+
+  <!-- Table -->
+  <article class="table-card">
+    <div class="table-wrap">
+      <table role="grid">
+        <thead>
+          <tr>
+            <th class="sortable">
+              <a href="#" onclick="return sortBy('created_at')">
+                Thời gian {% if sort == 'created_at' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}
+              </a>
+            </th>
+            <th class="sortable">
+              <a href="#" onclick="return sortBy('barcode')">
+                Barcode {% if sort == 'barcode' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}
+              </a>
+            </th>
+            <th class="sortable">
+              <a href="#" onclick="return sortBy('sku')">
+                SKU {% if sort == 'sku' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}
+              </a>
+            </th>
+            <th class="sortable">
+              <a href="#" onclick="return sortBy('action')">
+                Action {% if sort == 'action' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}
+              </a>
+            </th>
+            <th class="sortable">
+              <a href="#" onclick="return sortBy('from_wh')">
+                From {% if sort == 'from_wh' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}
+              </a>
+            </th>
+            <th class="sortable">
+              <a href="#" onclick="return sortBy('to_wh')">
+                To {% if sort == 'to_wh' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}
+              </a>
+            </th>
+            <th class="sortable">
+              <a href="#" onclick="return sortBy('type_action')">
+                Type {% if sort == 'type_action' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}
+              </a>
+            </th>
+            <th class="sortable">
+              <a href="#" onclick="return sortBy('note')">
+                Note {% if sort == 'note' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}
+              </a>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in logs %}
+            <tr>
+              <td>{{ m.created_at|date:"Y-m-d H:i" }}</td>
+              <td>{{ m.item.barcode_text }}</td>
+              <td>{{ m.item.product.sku }}</td>
+              <td>{{ m.action }}</td>
+              <td>{% if m.from_wh %}{{ m.from_wh.code }}{% else %}-{% endif %}</td>
+              <td>{% if m.to_wh %}{{ m.to_wh.code }}{% else %}-{% endif %}</td>
+              <td>{{ m.type_action|default:"-" }}</td>
+              <td>{{ m.note }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="8">Chưa có log.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
 </div>
 
-<h3>Log gần nhất</h3>
-<table role="grid">
-  <thead><tr><th>Thời gian</th><th>Barcode</th><th>SKU</th><th>Action</th><th>From</th><th>To</th><th>Note</th></tr></thead>
-  <tbody>
-  {% for m in logs %}
-    <tr>
-      <td>{{ m.created_at|date:"Y-m-d H:i" }}</td>
-      <td>{{ m.item.barcode_text }}</td>
-      <td>{{ m.item.product.sku }}</td>
-      <td>{{ m.action }}</td>
-      <td>{% if m.from_wh %}{{ m.from_wh.code }}{% else %}-{% endif %}</td>
-      <td>{% if m.to_wh %}{{ m.to_wh.code }}{% else %}-{% endif %}</td>
-      <td>{{ m.note }}</td>
-    </tr>
-  {% empty %}<tr><td colspan="7">Chưa có log.</td></tr>{% endfor %}
-  </tbody>
-</table>
-{% endblock %} {% endcomment %} {% endcomment %}
+<script>
+  function sortBy(key){
+    const f = document.getElementById('filterForm');
+    const s = document.getElementById('sortInput');
+    const d = document.getElementById('dirInput');
+    const curS = s.value || 'created_at';
+    const curD = d.value || 'desc';
+    if (curS === key){
+      d.value = (curD === 'asc') ? 'desc' : 'asc';
+    } else {
+      s.value = key;
+      d.value = 'asc';
+    }
+    f.requestSubmit();
+    return false;
+  }
+  function downloadCSV(){
+    const f = document.getElementById('filterForm');
+    const ex = document.getElementById('exportInput');
+    ex.value = 'csv';
+    f.submit();
+    setTimeout(()=>{ ex.value = ""; }, 0);
+  }
+</script>
+{% endblock %}

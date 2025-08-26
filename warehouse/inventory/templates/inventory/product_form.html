@@ -1,21 +1,27 @@
 {% extends "inventory/base.html" %}
 {% block content %}
 <h2>{{ title }}</h2>
-<form method="post" class="grid">{% csrf_token %}
+<form method="post" class="form">{% csrf_token %}
+  {{ form.non_field_errors }}
   <div>
     <label>SKU</label>
     {{ form.sku }}
+    {{ form.sku.errors }}
   </div>
   <div>
-    <label>Tên sản phẩm</label>
+    <label>Name</label>
     {{ form.name }}
+    {{ form.name.errors }}
   </div>
-  <div>
-    <button type="submit">Lưu</button>
-    <a href="{% url 'product_list' %}" role="button" class="secondary">Huỷ</a>
-  </div>
+
+  {% if product %}
+    <div>
+      <label>Code4 (tự sinh, không sửa)</label>
+      <input value="{{ product.code4 }}" disabled>
+    </div>
+  {% endif %}
+
+  <button type="submit">Lưu</button>
+  <a href="{% url 'product_list' %}">Huỷ</a>
 </form>
-{% if form.errors %}
-  <article class="message-error">{{ form.errors }}</article>
-{% endif %}
 {% endblock %}

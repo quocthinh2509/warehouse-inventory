@@ -7,18 +7,26 @@
   .gen-h2{font-size:28px;font-weight:700;margin:6px 0 16px}
   .gen-card{background:#0b1220;border:1px solid #263247;border-radius:12px}
   .gen-body{padding:16px}
-  .gen-grid{display:grid;grid-template-columns:1fr 1fr 160px;gap:12px}
+  .gen-grid{display:grid;grid-template-columns:1fr 1fr 160px 160px;gap:12px}
   .gen-field{display:flex;flex-direction:column;gap:6px}
   .gen-label{font-size:14px;opacity:.9}
   input.gen-input, select.gen-select{padding:10px;border-radius:8px;border:1px solid #2a3a50;background:#0e1625;color:#e6edf3}
-  /* áp dụng style cho field form mặc định của Django nếu không gắn class */
-  #id_qty, #id_warehouse{padding:10px;border-radius:8px;border:1px solid #2a3a50;background:#0e1625;color:#e6edf3;width:100%}
+  #id_qty, #id_import_date{padding:10px;border-radius:8px;border:1px solid #2a3a50;background:#0e1625;color:#e6edf3;width:100%}
   .gen-actions{display:flex;gap:12px;align-items:center;margin-top:14px;flex-wrap:wrap}
-  .gen-check{display:flex;align-items:center;gap:8px}
   .btn-primary{padding:12px 18px;border-radius:10px;border:0;background:#0ea5b8;color:#001018;font-weight:700;cursor:pointer}
   .btn-primary:hover{filter:brightness(1.1)}
   .btn-ghost{padding:10px 14px;border-radius:10px;border:1px solid #2a3a50;background:#0e1625;color:#e6edf3;cursor:pointer}
   .gen-note{font-size:14px;opacity:.8}
+  table.log{width:100%;border-collapse:collapse}
+  table.log th, table.log td{padding:8px;border-bottom:1px dashed #263247}
+  table.log th{text-align:left}
+  table.log td.num{text-align:right}
+
+  /* Toast nhỏ ở góc dưới phải */
+  .toast{position:fixed;right:16px;bottom:16px;background:#0ea5b8;color:#001018;
+         padding:10px 14px;border-radius:10px;font-weight:700;box-shadow:0 4px 16px rgba(0,0,0,.35);
+         opacity:0;transform:translateY(8px);transition:all .25s;z-index:9999}
+  .toast.show{opacity:1;transform:translateY(0)}
 </style>
 {% endblock %}
 
@@ -26,47 +34,32 @@
 <div class="gen-wrap">
   <h2 class="gen-h2">🧾 Generate Labels</h2>
 
-  {# Nhúng danh sách sản phẩm dạng JSON an toàn để sync SKU <-> Tên #}
   {{ products|json_script:"js-products" }}
 
-  {# Panel hiển thị sau khi in xong (redirect có ?batch=...) #}
-  {% if last_batch %}
-    <div class="gen-card" style="margin-bottom:14px">
-      <div class="gen-body" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
-        <div>✅ Đã tạo tem cho đợt in <code>{{ last_batch }}</code></div>
-        <a class="btn-primary" href="{% url 'download_batch' last_batch %}">⬇️ Tải ZIP tem</a>
-        <a class="btn-ghost" href="{{ media_url }}labels/{{ last_batch }}/" target="_blank">Mở thư mục</a>
-      </div>
-    </div>
-  {% endif %}
+  <!-- BỎ panel last_batch -->
 
   <form method="post" id="form-generate" autocomplete="off" class="gen-card">
     {% csrf_token %}
     <div class="gen-body">
       <div class="gen-grid">
-        <!-- SKU -->
         <div class="gen-field">
           <label class="gen-label" for="f-sku">SKU</label>
           <input id="f-sku" name="sku" class="gen-input" list="dl-sku" required>
           <datalist id="dl-sku">
-            {% for p in products %}
-              <option value="{{ p.sku }}">{{ p.name }}</option>
-            {% endfor %}
+            {% for p in products %}<option value="{{ p.sku }}">{{ p.name }}</option>{% endfor %}
           </datalist>
         </div>
-
-        <!-- Tên sản phẩm -->
         <div class="gen-field">
           <label class="gen-label" for="f-name">Tên sản phẩm</label>
           <input id="f-name" name="name" class="gen-input" list="dl-name" required>
           <datalist id="dl-name">
-            {% for p in products %}
-              <option value="{{ p.name }}">{{ p.sku }}</option>
-            {% endfor %}
+            {% for p in products %}<option value="{{ p.name }}">{{ p.sku }}</option>{% endfor %}
           </datalist>
         </div>
-
-        <!-- Số lượng -->
+        <div class="gen-field">
+          <label class="gen-label" for="id_import_date">Ngày nhập (dd/mm/yyyy)</label>
+          {{ form.import_date|safe }}
+        </div>
         <div class="gen-field">
           <label class="gen-label" for="id_qty">Số lượng</label>
           {{ form.qty|safe }}
@@ -74,30 +67,78 @@
       </div>
 
       <div class="gen-actions">
-        <label class="gen-check">
-          {{ form.mark_in|safe }}
-          <span>Ghi nhận nhập kho ngay</span>
-        </label>
-
-        <div style="min-width:260px">
-          <label class="gen-label" for="id_warehouse">Kho nhập</label>
-          {{ form.warehouse|safe }}
-        </div>
-      </div>
-
-      <div class="gen-actions">
-        <button type="submit" class="btn-primary">Generate</button>
-        <span class="gen-note">Ảnh tem sẽ lưu ở <code>/media/labels/</code> — mỗi lần in tạo thư mục <code>YYYYMMDD-HHMMSS-SKU</code>.</span>
+        <button type="submit" class="btn-primary">Thêm vào giỏ in</button>
+        <span class="gen-note">Khi bấm “Tạo & tải ZIP”, hệ thống sẽ gen tất cả tem trong giỏ thành 1 batch.</span>
       </div>
     </div>
   </form>
+
+  <div class="gen-card" style="margin-top:14px">
+    <div class="gen-body">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <h3 style="margin:0;font-size:18px">🧺 Giỏ in hiện tại</h3>
+        <div style="display:flex;gap:8px">
+          <a href="{% url 'clear_queue' %}" class="btn-ghost">🧹 Xóa giỏ</a>
+          {% if queue %}
+            <!-- Gửi POST tới finalize_queue vào iframe ẩn để tải ngay -->
+            <form action="{% url 'finalize_queue' %}" method="post" target="dlframe" style="display:inline">
+              {% csrf_token %}
+              <button type="submit" class="btn-primary" id="btn-finalize">🧾 Tạo & tải ZIP</button>
+            </form>
+          {% else %}
+            <button class="btn-primary" disabled>🧾 Tạo & tải ZIP</button>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if queue %}
+        <div style="overflow:auto;margin-top:10px">
+          <table class="log">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>SKU</th>
+                <th>Tên sản phẩm</th>
+                <th>Ngày nhập</th>
+                <th class="num">Số lượng</th>
+                <th>Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in queue %}
+              <tr>
+                <td>{{ forloop.counter }}</td>
+                <td>{{ row.sku }}</td>
+                <td>{{ row.name }}</td>
+                <td>{{ row.import_date }}</td>
+                <td class="num">{{ row.qty }}</td>
+                <td><a class="btn-ghost" href="{% url 'remove_queue_line' forloop.counter0 %}">Xóa</a></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="4" style="text-align:right;opacity:.9">Tổng tem</td>
+                <td class="num" style="font-weight:700">{{ total_qty }}</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      {% else %}
+        <p class="gen-note" style="margin-top:10px">Chưa có gì trong giỏ. Hãy thêm SKU ở form bên trên.</p>
+      {% endif %}
+    </div>
+  </div>
 </div>
 
+<!-- iframe ẩn để nhận response ZIP (download ngay) -->
+<iframe name="dlframe" id="dlframe" style="display:none"></iframe>
+
 <script>
-/* ====== Auto-fill SKU ↔ Name ====== */
+/* Auto-fill SKU ↔ Name theo list products đã nhúng */
 (function(){
   const DATA = JSON.parse(document.getElementById('js-products').textContent || '[]');
-
   const bySku  = new Map();  // sku -> name
   const byName = new Map();  // name -> sku
   for (const p of DATA) { bySku.set(p.sku, p.name); byName.set(p.name, p.sku); }
@@ -110,6 +151,59 @@
 
   ['input','change','blur'].forEach(e => skuEl.addEventListener(e,  fillBySku));
   ['input','change','blur'].forEach(e => nameEl.addEventListener(e, fillByName));
+})();
+</script>
+
+<script>
+/* Auto-fill "Ngày nhập" = hôm nay nếu ô đang trống.
+   Hỗ trợ cả input type="date" (yyyy-mm-dd) và text (dd/mm/yyyy) */
+(function () {
+  const el = document.getElementById('id_import_date');
+  if (!el) return;
+
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const yyyy = now.getFullYear();
+  const mm = pad(now.getMonth() + 1);
+  const dd = pad(now.getDate());
+
+  if (el.type === 'date') {
+    const val = `${yyyy}-${mm}-${dd}`;
+    if (!el.value) el.value = val;
+    el.max = val; // khoá chọn ngày tương lai
+  } else {
+    const val = `${dd}/${mm}/${yyyy}`;
+    if (!el.value) el.value = val;
+    if (!el.placeholder) el.placeholder = 'dd/mm/yyyy';
+    el.setAttribute('inputmode', 'numeric');
+  }
+})();
+</script>
+
+<script>
+/* Toast khi bấm "Tạo & tải ZIP" */
+(function(){
+  const btn = document.getElementById('btn-finalize');
+  if (!btn) return;
+
+  function toast(msg, dur=2200){
+    let t = document.getElementById('dl-toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'dl-toast';
+      t.className = 'toast';
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(t._tm);
+    t._tm = setTimeout(()=>t.classList.remove('show'), dur);
+  }
+
+  btn.addEventListener('click', function(){
+    toast('Đang tạo & tải ZIP...');
+    setTimeout(()=>toast('Đã tạo barcode cho đợt in!'), 1200);
+  });
 })();
 </script>
 {% endblock %}

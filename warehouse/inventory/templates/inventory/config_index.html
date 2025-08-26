@@ -1,0 +1,82 @@
+{% extends "inventory/base.html" %}
+{% block title %}Config{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* Hero */
+  .cfg-hero{
+    background: linear-gradient(135deg, rgba(14,165,233,.12), rgba(2,132,199,.06));
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 18px 20px;
+    margin-bottom: 18px;
+  }
+  .cfg-hero h2{
+    margin:0 0 6px; display:flex; align-items:center; gap:10px; font-size:28px;
+  }
+  .cfg-hero p{ margin:0; color: var(--muted); }
+
+  /* Grid + Card */
+  .cfg-grid{
+    display:grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap:14px;
+  }
+  .cfg-card{
+    position:relative; display:block;
+    padding:18px;
+    background: var(--card-bg);
+    border:1px solid var(--border);
+    border-radius:14px;
+    text-decoration:none;
+    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+  }
+  .cfg-card:hover{
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px rgba(2,132,199,.22);
+    border-color: var(--primary);
+  }
+  .cfg-icon{
+    width:42px;height:42px;border-radius:12px;
+    display:inline-flex;align-items:center;justify-content:center;
+    background: rgba(14,165,233,.15); color: var(--primary);
+    font-size:22px; margin-bottom:8px;
+  }
+  .cfg-title{ font-weight:700; font-size:18px; margin:6px 0 4px; color: var(--text); }
+  .cfg-desc{ margin:0; color: var(--muted); font-size:14px; line-height:1.45; }
+  .cfg-arrow{
+    position:absolute; right:14px; top:14px; opacity:.6; transition: transform .18s, opacity .18s;
+  }
+  .cfg-card:hover .cfg-arrow{ opacity:1; transform: translateX(2px); }
+</style>
+{% endblock %}
+
+{% block content %}
+  <div class="cfg-hero">
+    <h2>⚙️ Config</h2>
+    <p>Trung tâm cấu hình: chạy truy vấn nhanh, quản lý danh mục sản phẩm, và vào trang quản trị.</p>
+  </div>
+
+  <div class="cfg-grid">
+    <a class="cfg-card" href="{% url 'query_panel' %}">
+      <span class="cfg-icon">📊</span>
+      <div class="cfg-title">Query Panel</div>
+      <p class="cfg-desc">Chạy SELECT để xem dữ liệu nhanh, preview bảng, xuất kết quả.</p>
+      <span class="cfg-arrow">➜</span>
+    </a>
+
+    <a class="cfg-card" href="{% url 'product_list' %}">
+      <span class="cfg-icon">🗂️</span>
+      <div class="cfg-title">Products</div>
+      <p class="cfg-desc">Quản lý danh mục sản phẩm (CRUD), tìm kiếm theo SKU/tên, chỉnh sửa nhanh.</p>
+      <span class="cfg-arrow">➜</span>
+    </a>
+
+    <a class="cfg-card" href="/admin/">
+      <span class="cfg-icon">🛡️</span>
+      <div class="cfg-title">Admin</div>
+      <p class="cfg-desc">Trang quản trị hệ thống: người dùng, quyền hạn, dữ liệu nâng cao.</p>
+      <span class="cfg-arrow">➜</span>
+    </a>
+  </div>
+{% endblock %}
