@@ -3,80 +3,86 @@
 
 {% block extra_head %}
 <style>
-  /* ⬇️ Mở rộng vùng nội dung (override của base.html) */
-  main.container{max-width:1600px}
-  @media (min-width:1800px){ main.container{max-width:1800px} }
-
-  .dash-page{max-width:100%;}
+  /* Toàn trang */
+  main.container{max-width:95%}
+  .dash-page{width:100%}
 
   /* Hero */
   .dash-hero{
-    background:linear-gradient(135deg, rgba(14,165,233,.14), rgba(2,132,199,.07));
-    border:1px solid var(--border);
-    border-radius:18px;
-    padding:22px 26px;
-    margin-bottom:18px;
-    display:flex;align-items:center;gap:14px
+    background:linear-gradient(135deg,#0ea5e9aa,#0284c780);
+    border-radius:16px;padding:24px 28px;margin-bottom:20px;
+    display:flex;align-items:center;gap:16px;box-shadow:0 6px 20px rgba(0,0,0,.25)
   }
-  .dash-hero h2{margin:0;font-size:32px;display:flex;gap:10px;align-items:center}
-  .dash-hero .hint{color:var(--muted);font-size:14px;margin-left:auto}
+  .dash-hero h2{margin:0;font-size:34px;display:flex;gap:10px;align-items:center;color:#fff}
+  .dash-hero .hint{color:#dbeafe;font-size:15px;margin-left:auto}
 
   /* Cards */
   .dash-cards{
-    display:grid;
-    grid-template-columns:repeat(auto-fit, minmax(260px,1fr));
-    gap:14px;margin-bottom:14px
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
+    gap:16px;margin-bottom:20px
   }
   .dash-card{
-    background:var(--card-bg);
-    border:1px solid var(--border);
-    border-radius:14px;
-    padding:16px 18px;
-    box-shadow:0 6px 18px rgba(0,0,0,.18);
+    background:var(--card-bg);border:1px solid var(--border);
+    border-radius:14px;padding:20px;text-align:center;transition:transform .2s ease;
+    box-shadow:0 4px 14px rgba(0,0,0,.18)
   }
-  .dash-card header{color:var(--muted);font-weight:600}
-  .dash-card h3{margin:.35rem 0 0;font-size:32px}
+  .dash-card:hover{transform:translateY(-3px)}
+  .dash-card header{color:var(--muted);font-weight:600;font-size:15px}
+  .dash-card h3{margin:.4rem 0 0;font-size:36px;color:#0ea5e9}
 
-  /* Filter form */
+  /* Bộ lọc */
   .dash-panel{
-    background:var(--card-bg);
-    border:1px solid var(--border);
-    border-radius:14px;
-    padding:16px 18px;margin-bottom:14px
+    background:var(--card-bg);border:1px solid var(--border);
+    border-radius:14px;padding:18px;margin-bottom:18px;box-shadow:0 3px 10px rgba(0,0,0,.15)
   }
   .filters{
-    display:grid;
-    grid-template-columns:repeat(6, minmax(180px, 1fr));
-    gap:10px;align-items:end
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+    gap:12px;align-items:end
   }
+  .filters label{font-size:14px;color:var(--muted);margin-bottom:4px;display:block}
+  .dash-panel input,.dash-panel select{height:42px;font-size:15px;padding:0 8px}
   .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
-  .pill{display:inline-block;padding:4px 10px;border-radius:999px;background:#0b1220;border:1px solid #263247}
-  .muted{color:var(--muted)}
-  .dash-panel input,.dash-panel select{
-    height:44px;font-size:15px
-  }
-  .dash-panel button{height:44px}
+  .pill{padding:4px 10px;border-radius:999px;background:#0b1220;border:1px solid #263247;font-size:13px}
 
-  /* Table */
-  .table-card{background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:0}
-  .table-wrap{overflow:auto;max-height:65vh;border-radius:14px}
-  table{min-width:1100px}
-  thead th{position:sticky;top:0;background:#0f172a;z-index:1}
-  th, td{white-space:nowrap}
+  /* Range picker (giống ảnh) */
+  .range-wrap{position:relative}
+  .range-input{
+    height:42px;padding:0 12px;border:1px solid var(--border);
+    background:var(--card-bg);border-radius:10px;width:100%
+  }
+  .preset-menu{
+    position:absolute;left:0;top:48px;z-index:5;background:#0f172a;border:1px solid #263247;border-radius:12px;
+    width:260px;padding:8px;box-shadow:0 10px 30px rgba(0,0,0,.35);display:none
+  }
+  .preset-menu button{
+    width:100%;text-align:left;border:none;background:transparent;padding:10px 12px;border-radius:8px;
+    color:#cbd5e1;cursor:pointer
+  }
+  .preset-menu button:hover{background:#132035}
+  .range-wrap.open .preset-menu{display:block}
+  @media(max-width:1000px){.preset-menu{width:210px}}
+
+  /* Bảng */
+  .table-card{background:var(--card-bg);border:1px solid var(--border);border-radius:14px}
+  .table-wrap{overflow:auto;max-height:70vh;border-radius:14px}
+  table{width:100%;min-width:1200px;border-collapse:collapse}
+  thead th{position:sticky;top:0;background:#1e293b;z-index:1;padding:12px;text-align:left;font-size:18px;border-bottom:1px solid #334155}
+  tbody td{padding:10px 12px;font-size:18px;border-bottom:1px solid #263247}
   tbody tr:nth-child(odd){background:rgba(255,255,255,.02)}
   th.sortable a{display:inline-flex;gap:6px;align-items:center;text-decoration:none;color:inherit}
   .dir-badge{font-size:12px}
-  @media (max-width: 1000px){
-    .filters{grid-template-columns:1fr 1fr}
-  }
 </style>
+
+<!-- Litepicker (date range) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/litepicker/dist/css/litepicker.css">
+<script defer src="https://cdn.jsdelivr.net/npm/litepicker/dist/litepicker.js"></script>
 {% endblock %}
 
 {% block content %}
 <div class="dash-page">
+  <!-- Hero -->
   <div class="dash-hero">
     <h2>📊 Dashboard</h2>
-    <div class="hint">Bộ lọc & báo cáo tức thời</div>
   </div>
 
   <!-- Cards -->
@@ -89,34 +95,38 @@
       <header>Tổng OUT (theo bộ lọc)</header>
       <h3>{{ total_out }}</h3>
     </article>
-    <article class="dash-card">
-      <header>Transfers (theo bộ lọc)</header>
-      <h3>{{ total_transfer }}</h3>
-    </article>
   </div>
 
   <!-- Filters -->
   <form id="filterForm" method="get" class="dash-panel">
     <div class="filters">
-      <div>
-        <label class="muted">Từ ngày</label>
-        <input type="date" name="start" value="{{ start }}">
+      <!-- Date range like screenshot -->
+      <div class="range-wrap" id="rangeWrap">
+        <label>Thời gian</label>
+        <input id="rangeDisplay" class="range-input" type="text" placeholder="Start date → End date" readonly>
+        <input type="hidden" name="start" id="startInput" value="{{ start }}">
+        <input type="hidden" name="end"   id="endInput"   value="{{ end }}">
+        <div class="preset-menu" id="presetMenu">
+          <button data-preset="today">Today</button>
+          <button data-preset="yesterday">Yesterday</button>
+          <button data-preset="this_week">This Week</button>
+          <button data-preset="last_7">Last 7 Days</button>
+          <button data-preset="this_month">This Month</button>
+          <button data-preset="last_month">Last Month</button>
+        </div>
       </div>
+
       <div>
-        <label class="muted">Đến ngày</label>
-        <input type="date" name="end" value="{{ end }}">
-      </div>
-      <div>
-        <label class="muted">Action</label>
+        <label>Action</label>
         <select name="action">
           <option value="">(Tất cả)</option>
           <option value="IN"  {% if action == "IN" %}selected{% endif %}>IN</option>
           <option value="OUT" {% if action == "OUT" %}selected{% endif %}>OUT</option>
-          <option value="TRANSFER" {% if action == "TRANSFER" %}selected{% endif %}>TRANSFER</option>
         </select>
       </div>
+
       <div>
-        <label class="muted">Kho</label>
+        <label>Kho</label>
         <select name="wh">
           <option value="">(Tất cả)</option>
           {% for w in warehouses %}
@@ -124,12 +134,14 @@
           {% endfor %}
         </select>
       </div>
+
       <div>
-        <label class="muted">Tìm kiếm</label>
+        <label>Tìm kiếm</label>
         <input type="search" name="q" value="{{ q }}" placeholder="barcode / SKU / tên / note">
       </div>
+
       <div>
-        <label class="muted">Hiển thị</label>
+        <label>Hiển thị</label>
         <select name="per">
           {% for n in per_options %}
             <option value="{{ n }}" {% if per == n %}selected{% endif %}>{{ n }}</option>
@@ -155,46 +167,14 @@
       <table role="grid">
         <thead>
           <tr>
-            <th class="sortable">
-              <a href="#" onclick="return sortBy('created_at')">
-                Thời gian {% if sort == 'created_at' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}
-              </a>
-            </th>
-            <th class="sortable">
-              <a href="#" onclick="return sortBy('barcode')">
-                Barcode {% if sort == 'barcode' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}
-              </a>
-            </th>
-            <th class="sortable">
-              <a href="#" onclick="return sortBy('sku')">
-                SKU {% if sort == 'sku' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}
-              </a>
-            </th>
-            <th class="sortable">
-              <a href="#" onclick="return sortBy('action')">
-                Action {% if sort == 'action' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}
-              </a>
-            </th>
-            <th class="sortable">
-              <a href="#" onclick="return sortBy('from_wh')">
-                From {% if sort == 'from_wh' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}
-              </a>
-            </th>
-            <th class="sortable">
-              <a href="#" onclick="return sortBy('to_wh')">
-                To {% if sort == 'to_wh' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}
-              </a>
-            </th>
-            <th class="sortable">
-              <a href="#" onclick="return sortBy('type_action')">
-                Type {% if sort == 'type_action' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}
-              </a>
-            </th>
-            <th class="sortable">
-              <a href="#" onclick="return sortBy('note')">
-                Note {% if sort == 'note' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}
-              </a>
-            </th>
+            <th class="sortable"><a href="#" onclick="return sortBy('created_at')">Thời gian {% if sort == 'created_at' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+            <th class="sortable"><a href="#" onclick="return sortBy('barcode')">Barcode {% if sort == 'barcode' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+            <th class="sortable"><a href="#" onclick="return sortBy('sku')">SKU {% if sort == 'sku' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+            <th class="sortable"><a href="#" onclick="return sortBy('action')">Action {% if sort == 'action' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+            <th class="sortable"><a href="#" onclick="return sortBy('from_wh')">From {% if sort == 'from_wh' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+            <th class="sortable"><a href="#" onclick="return sortBy('to_wh')">To {% if sort == 'to_wh' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+            <th class="sortable"><a href="#" onclick="return sortBy('type_action')">Type {% if sort == 'type_action' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+            <th class="sortable"><a href="#" onclick="return sortBy('note')">Note {% if sort == 'note' %}<span class="pill dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
           </tr>
         </thead>
         <tbody>
@@ -219,27 +199,89 @@
 </div>
 
 <script>
+  // ---- sort / export giữ nguyên
   function sortBy(key){
-    const f = document.getElementById('filterForm');
-    const s = document.getElementById('sortInput');
-    const d = document.getElementById('dirInput');
-    const curS = s.value || 'created_at';
-    const curD = d.value || 'desc';
-    if (curS === key){
-      d.value = (curD === 'asc') ? 'desc' : 'asc';
-    } else {
-      s.value = key;
-      d.value = 'asc';
-    }
-    f.requestSubmit();
-    return false;
+    const f=document.getElementById('filterForm');
+    const s=document.getElementById('sortInput');
+    const d=document.getElementById('dirInput');
+    const curS=s.value||'created_at';
+    const curD=d.value||'desc';
+    if(curS===key){ d.value=(curD==='asc')?'desc':'asc'; }else{ s.value=key; d.value='asc'; }
+    f.requestSubmit(); return false;
   }
   function downloadCSV(){
-    const f = document.getElementById('filterForm');
-    const ex = document.getElementById('exportInput');
-    ex.value = 'csv';
-    f.submit();
-    setTimeout(()=>{ ex.value = ""; }, 0);
+    const f=document.getElementById('filterForm');
+    const ex=document.getElementById('exportInput');
+    ex.value='csv'; f.submit(); setTimeout(()=>{ex.value=''},0);
   }
+
+  // ---- Date range picker (Litepicker)
+  const fmt=(d)=>d.toISOString().slice(0,10);
+  const startEl=document.getElementById('startInput');
+  const endEl=document.getElementById('endInput');
+  const dispEl=document.getElementById('rangeDisplay');
+  const wrapEl=document.getElementById('rangeWrap');
+  const presetEl=document.getElementById('presetMenu');
+
+  function setDisplay(){
+    const s=startEl.value, e=endEl.value;
+    dispEl.value=(s&&e)?`${s}  →  ${e}`:'';
+  }
+
+  document.addEventListener('DOMContentLoaded',()=>{
+    const opts={
+      element:dispEl,
+      singleMode:false,
+      numberOfMonths:2,
+      numberOfColumns:2,
+      autoApply:true,
+      format:'YYYY-MM-DD',
+      dropdowns:{minYear:2020,maxYear:2035,months:true,years:true},
+      startDate:startEl.value||null,
+      endDate:endEl.value||null,
+      tooltipText:{one:'day',other:'days'},
+      tooltipNumber:(n)=>n
+    };
+    const picker=new Litepicker(opts);
+
+    picker.on('selected',(d1,d2)=>{
+      startEl.value=d1?d1.format('YYYY-MM-DD'):'';
+      endEl.value=d2?d2.format('YYYY-MM-DD'):'';
+      setDisplay();
+    });
+
+    // mở/đóng preset menu
+    dispEl.addEventListener('focus',()=>wrapEl.classList.add('open'));
+    document.addEventListener('click',(e)=>{
+      if(!wrapEl.contains(e.target)) wrapEl.classList.remove('open');
+    });
+
+    // Presets
+    presetEl.querySelectorAll('button').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        const now=new Date();
+        const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+        let s=new Date(today), e=new Date(today);
+        switch(btn.dataset.preset){
+          case 'today': break;
+          case 'yesterday': s.setDate(s.getDate()-1); e.setDate(e.getDate()-1); break;
+          case 'this_week': {
+            const day=(today.getDay()+6)%7; // Mon=0..Sun=6
+            s.setDate(s.getDate()-day); e=new Date(s); e.setDate(s.getDate()+6); break;
+          }
+          case 'last_7': s.setDate(s.getDate()-6); break;
+          case 'this_month': s=new Date(today.getFullYear(),today.getMonth(),1);
+                             e=new Date(today.getFullYear(),today.getMonth()+1,0); break;
+          case 'last_month': s=new Date(today.getFullYear(),today.getMonth()-1,1);
+                             e=new Date(today.getFullYear(),today.getMonth(),0); break;
+        }
+        picker.setDateRange(s,e,true);
+        startEl.value=fmt(s); endEl.value=fmt(e); setDisplay();
+        wrapEl.classList.remove('open');
+      });
+    });
+
+    setDisplay();
+  });
 </script>
 {% endblock %}

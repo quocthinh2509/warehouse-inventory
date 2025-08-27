@@ -6,3 +6,4 @@ python-barcode==0.15.1
 qrcode==8.2
 sqlparse==0.5.3
 tzdata==2025.2
+gunicorn>=21.2

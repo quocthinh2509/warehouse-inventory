@@ -64,7 +64,7 @@ def dashboard(request):
         qs = qs.filter(created_at__date__gte=start_d)
     if end_d:
         qs = qs.filter(created_at__date__lte=end_d)
-    if action in {"IN", "OUT", "TRANSFER"}:
+    if action in {"IN", "OUT"}:
         qs = qs.filter(action=action)
     if wh_id:
         # Nếu có action cụ thể thì lọc đúng chiều; nếu không thì (from|to) đều được
@@ -72,8 +72,6 @@ def dashboard(request):
             qs = qs.filter(to_wh_id=wh_id)
         elif action == "OUT":
             qs = qs.filter(from_wh_id=wh_id)
-        elif action == "TRANSFER":
-            qs = qs.filter(Q(from_wh_id=wh_id) | Q(to_wh_id=wh_id))
         else:
             qs = qs.filter(Q(from_wh_id=wh_id) | Q(to_wh_id=wh_id))
     if q:
@@ -145,7 +143,7 @@ def dashboard(request):
     base_qs = base_filtered()
     total_in        = base_qs.filter(action="IN").count()
     total_out       = base_qs.filter(action="OUT").count()
-    total_transfer  = base_qs.filter(action="TRANSFER").count()
+    
 
     warehouses = Warehouse.objects.all().order_by("code")
 
@@ -157,7 +155,7 @@ def dashboard(request):
             "total_rows": total_rows,
             "total_in": total_in,
             "total_out": total_out,
-            "total_transfer": total_transfer,
+            
 
             # filter state
             "q": q, "action": action, "wh_id": str(wh_id),
