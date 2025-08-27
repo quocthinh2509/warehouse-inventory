@@ -33,6 +33,6 @@ docker run -d \
   --name warehouse \
   --user root \
   --restart unless-stopped \
-  -v /var/www/warehouse:/app \
+  -v /var/www/warehouse/warehouse:/app \
   vision2509/warehouse:latest
 ENDSSH
