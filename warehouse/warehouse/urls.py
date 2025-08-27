@@ -46,8 +46,10 @@ urlpatterns = [
 
 
     # Dashboard
-    path("dashboard/", views.dashboard, name="dashboard"),
-
+    path("dashboard/", views.dashboard_redirect, name="dashboard"),  # click menu -> mặc định vào warehouse
+    path("dashboard/warehouse/", views.dashboard_warehouse, name="dashboard_warehouse"),
+    path("dashboard/barcodes/", views.dashboard_barcodes, name="dashboard_barcodes"),
+    path("dashboard/history/", views.dashboard_history, name="dashboard_history"),
     # Config hub
     path("config/", views.config_index, name="config_index"),
 

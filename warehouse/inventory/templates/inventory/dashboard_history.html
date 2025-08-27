@@ -1,0 +1,373 @@
+{% extends "inventory/base.html" %}
+{% block title %}Dashboard – History{% endblock %}
+
+{% block extra_head %}
+{{ block.super }}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/litepicker/dist/css/litepicker.css">
+<script defer src="https://cdn.jsdelivr.net/npm/litepicker/dist/litepicker.js"></script>
+<style>
+  main.container { max-width: unset; padding: 0; }
+  .dash-main { padding: 16px; }
+
+  /* Header gọn, nền trắng */
+  .dash-hero{
+    background:#fff; color:var(--text);
+    border:1px solid var(--border); border-radius:12px;
+    padding:12px 16px; margin:0 12px 12px 0;
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .dash-hero h2{margin:0; font-size:20px; font-weight:700; display:flex; gap:8px; align-items:center}
+  .hero-stats{display:flex; gap:12px}
+  .hero-stat{padding-left:12px; border-left:1px solid var(--border); text-align:right}
+  .hero-stat:first-child{border-left:none}
+  .hero-stat-value{font-size:18px; font-weight:700}
+  .hero-stat-label{font-size:12px; color:var(--muted)}
+
+  /* Panel filter nhỏ gọn */
+  .dash-panel{
+    background:#fff; border:1px solid var(--border); border-radius:12px;
+    padding:12px; margin:0 12px 12px 0;
+  }
+  .filters-header{display:flex; justify-content:space-between; align-items:center; margin-bottom:8px}
+  .filters-title{margin:0; font-size:16px; font-weight:600}
+  .quick-filters{display:flex; gap:6px}
+  .quick-filter{padding:4px 8px; border:1px solid var(--border); border-radius:999px; background:#fff; color:var(--text); font-size:12px; text-decoration:none}
+  .quick-filter:hover,.quick-filter.active{background:var(--primary); color:#fff; border-color:var(--primary)}
+
+  /* Lưới filter + 3 nút cùng hàng */
+  .filters{
+    display:grid;
+    grid-template-columns:
+      minmax(240px, 1.2fr)  /* time range */
+      170px                 /* action   */
+      220px                 /* wh       */
+      minmax(260px, 1fr)    /* search   */
+      110px                 /* Apply    */
+      110px                 /* Reset    */
+      110px;                /* Export   */
+    gap:8px; align-items:end;
+  }
+  .filters label{font-size:12px; color:var(--muted); margin:0 0 4px}
+  .filters input,.filters select{
+    height:34px; padding:0 10px; font-size:13px;
+    border:1px solid var(--border); border-radius:8px; background:#fff;
+  }
+  .filters input:focus,.filters select:focus{
+    outline:none; border-color:var(--primary); box-shadow:0 0 0 3px rgba(59,130,246,.08)
+  }
+  .range-wrap{position:relative}
+  .range-input{
+    padding-left:34px;
+    background:#fff url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="%236B7280" viewBox="0 0 16 16"><path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5zM1 4v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4H1z"/></svg>') no-repeat 10px center
+  }
+
+  /* Nút nhỏ dùng chung – cùng kích cỡ */
+  .btn-s{height:34px; width:100%; padding:6px 10px; font-size:13px; border-radius:8px}
+  .btn-secondary{background:#f6f7f9; color:#4b5563; border:1px solid #e5e7eb}
+  .btn-secondary:hover{background:#e9eef3}
+
+  /* Bảng */
+  .table-card{background:#fff; border:1px solid var(--border); border-radius:12px; margin-right:12px}
+  .table-wrap{overflow:auto; max-height:70vh}
+  table{width:100%; min-width:1200px; border-collapse:collapse}
+  thead th{position:sticky; top:0; background:#fff; padding:10px; font-size:13px; font-weight:600; border-bottom:1px solid var(--border)}
+  tbody td{padding:10px; font-size:13px; border-bottom:1px solid var(--border)}
+  tbody tr:hover{background:#f8fafc}
+  .dir-badge{font-size:10px; background:#e5e7eb; color:#111827; padding:1px 6px; border-radius:999px}
+  .status-badge{padding:3px 6px; border-radius:10px; font-size:11px; font-weight:600}
+  .action-in{background:#dcfce7; color:#166534}
+  .action-out{background:#fee2e2; color:#b91c1c}
+
+  /* Loading */
+  .loading-overlay{position:fixed; inset:0; background:rgba(255,255,255,.7); display:flex; align-items:center; justify-content:center; z-index:1000; opacity:0; pointer-events:none; transition:opacity .2s}
+  .loading-overlay.show{opacity:1; pointer-events:auto}
+  .loading-spinner{width:34px; height:34px; border:4px solid #eef2f7; border-top:4px solid var(--primary); border-radius:50%; animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  /* ====== Make filters look bolder & larger (like image #2) ====== */
+
+/* Header của panel filter */
+.filters-title{
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+/* Quick filters (Today/Yesterday/...) rõ hơn */
+.quick-filter{
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #f1f5f9;
+  color: #0f172a;
+}
+.quick-filter:hover,
+.quick-filter.active{
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+/* Nhãn + ô nhập trong lưới filter */
+.filters label{
+  font-size: 13px;
+  font-weight: 700;
+  color: #1f2937; /* đậm hơn */
+  margin: 0 0 6px;
+}
+
+/* Input/select đậm nền + border rõ + chữ to hơn */
+.filters input,
+.filters select{
+  height: 42px;                /* cao hơn */
+  padding: 0 12px;
+  font-size: 15px;             /* to hơn */
+  border: 1px solid #cbd5e1;   /* viền rõ */
+  border-radius: 10px;
+  background: #f8fafc;         /* nền hơi đậm */
+  color: #0f172a;
+  transition: border-color .15s, background .15s, box-shadow .15s;
+}
+.filters input::placeholder{
+  color: #64748b;
+  font-weight: 500;
+}
+.filters input:focus,
+.filters select:focus{
+  outline: none;
+  border-color: #2563eb;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .15);
+}
+
+/* Trường chọn khoảng ngày có icon + nền đậm tương đồng */
+.range-input{
+  height: 42px;
+  padding-left: 38px;
+  background-color: #f8fafc;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="%236b7280" viewBox="0 0 16 16"><path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5zM1 4v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4H1z"/></svg>');
+  background-repeat: no-repeat;
+  background-position: 12px center;
+  background-size: 16px 16px;
+}
+
+/* Nút Apply nổi bật xanh, Reset/Export xám nhạt – cùng kích thước */
+.btn-s{
+  height: 42px;
+  width: 100%;
+  padding: 8px 14px;
+  font-size: 15px;
+  font-weight: 700;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: #2563eb;
+  color: #fff;
+  cursor: pointer;
+}
+.btn-s:hover{ filter: brightness(0.98); }
+
+.btn-s.btn-secondary{
+  background: #f1f5f9;
+  color: #111827;
+  border: 1px solid #e5e7eb;
+}
+.btn-s.btn-secondary:hover{
+  background: #e5e7eb;
+}
+
+/* Giãn cách lưới filter một chút để thoáng mắt */
+.filters{
+  gap: 10px;
+}
+
+/* Tăng chút độ đậm hàng tiêu đề bảng cho đồng bộ */
+thead th{
+  font-size: 14px;
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+
+
+
+  
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dash-wrap">
+  {% include "inventory/_dash_sidebar.html" %}
+  <main class="dash-main">
+    <div class="dash-page">
+
+      <!-- Header -->
+      <div class="dash-hero">
+        <h2>🕓 Transaction History</h2>
+        <div class="hero-stats">
+          <div class="hero-stat">
+            <div class="hero-stat-value">{{ total_rows }}</div>
+            <div class="hero-stat-label">Total records</div>
+          </div>
+          <div class="hero-stat">
+            <div class="hero-stat-value">{{ total_in }}</div>
+            <div class="hero-stat-label">Items in</div>
+          </div>
+          <div class="hero-stat">
+            <div class="hero-stat-value">{{ total_out }}</div>
+            <div class="hero-stat-label">Items out</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="dash-panel">
+        <div class="filters-header">
+          <h3 class="filters-title">Filters & Search</h3>
+          <div class="quick-filters">
+            <a href="?start={{ today }}&end={{ today }}" class="quick-filter {% if start == today and end == today %}active{% endif %}">Today</a>
+            <a href="?start={{ yesterday }}&end={{ yesterday }}" class="quick-filter">Yesterday</a>
+            <a href="?start={{ week_start }}&end={{ today }}" class="quick-filter">This week</a>
+            <a href="?start={{ month_start }}&end={{ today }}" class="quick-filter">This month</a>
+          </div>
+        </div>
+
+        <form id="filterForm" method="get">
+          <div class="filters">
+            <div>
+              <label>Time range</label>
+              <div class="range-wrap">
+                <input id="rangeDisplay" class="range-input" type="text" placeholder="Select date range" readonly>
+                <input type="hidden" name="start" id="startInput" value="{{ start }}">
+                <input type="hidden" name="end" id="endInput" value="{{ end }}">
+              </div>
+            </div>
+
+            <div>
+              <label>Action</label>
+              <select name="action">
+                <option value="">(All)</option>
+                <option value="IN"  {% if action == "IN" %}selected{% endif %}>IN</option>
+                <option value="OUT" {% if action == "OUT" %}selected{% endif %}>OUT</option>
+              </select>
+            </div>
+
+            <div>
+              <label>Warehouse</label>
+              <select name="wh">
+                <option value="">(All)</option>
+                {% for w in warehouses %}
+                  <option value="{{ w.id }}" {% if wh_id == w.id|stringformat:"s" %}selected{% endif %}>{{ w.code }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div>
+              <label>Search</label>
+              <input type="search" name="q" value="{{ q }}" placeholder="Barcode, SKU, name, note…">
+            </div>
+
+            <!-- 3 nút cùng hàng + cùng kích cỡ -->
+            <div><button type="submit" class="btn-s">Apply</button></div>
+            <div><button type="button" class="btn-s btn-secondary" onclick="resetFilters()">Reset</button></div>
+            <div><button type="button" class="btn-s btn-secondary" onclick="downloadCSV()">Export CSV</button></div>
+          </div>
+
+          <!-- hidden sort/export -->
+          <input type="hidden" name="sort" id="sortInput" value="{{ sort }}">
+          <input type="hidden" name="dir" id="dirInput" value="{{ dir }}">
+          <input type="hidden" name="export" id="exportInput" value="">
+        </form>
+      </div>
+
+      <!-- Bảng -->
+      <article class="table-card">
+        <div class="table-wrap">
+          <table role="grid">
+            <thead>
+              <tr>
+                <th class="sortable"><a href="#" onclick="return sortBy('created_at')">Timestamp {% if sort == 'created_at' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+                <th class="sortable"><a href="#" onclick="return sortBy('barcode')">Barcode {% if sort == 'barcode' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+                <th class="sortable"><a href="#" onclick="return sortBy('sku')">SKU {% if sort == 'sku' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+                <th>Product</th>
+                <th class="sortable"><a href="#" onclick="return sortBy('action')">Action {% if sort == 'action' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+                <th class="sortable"><a href="#" onclick="return sortBy('from_wh')">From {% if sort == 'from_wh' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+                <th class="sortable"><a href="#" onclick="return sortBy('to_wh')">To {% if sort == 'to_wh' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+                <th class="sortable"><a href="#" onclick="return sortBy('type_action')">Type {% if sort == 'type_action' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+                <th class="sortable"><a href="#" onclick="return sortBy('note')">Note {% if sort == 'note' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+                <th>Tag</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for m in logs %}
+                <tr>
+                  <td>{{ m.created_at|date:"Y-m-d H:i:s" }}</td>
+                  <td><code style="background:#f3f4f6; padding:2px 6px; border-radius:4px">{{ m.item.barcode_text }}</code></td>
+                  <td>{{ m.item.product.sku }}</td>
+                  <td style="max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="{{ m.item.product.name }}">{{ m.item.product.name }}</td>
+                  <td><span class="status-badge action-{{ m.action|lower }}">{{ m.action }}</span></td>
+                  <td>{% if m.from_wh %}{{ m.from_wh.code }}{% else %}-{% endif %}</td>
+                  <td>{% if m.to_wh %}{{ m.to_wh.code }}{% else %}-{% endif %}</td>
+                  <td>{{ m.type_action|default:"-" }}</td>
+                  <td style="max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="{{ m.note }}">{{ m.note|default:"-" }}</td>
+                  <td><span style="background:#eef2ff; padding:2px 6px; border-radius:8px; font-size:11px">#{{ m.tag }}</span></td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="10" style="text-align:center; padding:28px; color:var(--muted)">No transactions</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </div>
+  </main>
+</div>
+
+<!-- Loading -->
+<div class="loading-overlay" id="loadingOverlay"><div class="loading-spinner"></div></div>
+
+<script>
+  function sortBy(key){
+    showLoading();
+    const f=document.getElementById('filterForm');
+    const s=document.getElementById('sortInput');
+    const d=document.getElementById('dirInput');
+    const curS=s.value||'created_at', curD=d.value||'desc';
+    if(curS===key){ d.value=(curD==='asc')?'desc':'asc'; } else { s.value=key; d.value='asc'; }
+    f.requestSubmit(); return false;
+  }
+
+  function downloadCSV(){
+    showLoading();
+    const f=document.getElementById('filterForm');
+    const ex=document.getElementById('exportInput');
+    ex.value='csv'; f.submit(); setTimeout(()=>{ex.value=''; hideLoading();}, 800);
+  }
+
+  function resetFilters(){
+    // chuyển về route gốc
+    window.location.href = "{% url 'dashboard_history' %}";
+  }
+
+  function showLoading(){ document.getElementById('loadingOverlay').classList.add('show'); }
+  function hideLoading(){ document.getElementById('loadingOverlay').classList.remove('show'); }
+
+  const startEl=document.getElementById('startInput');
+  const endEl=document.getElementById('endInput');
+  const dispEl=document.getElementById('rangeDisplay');
+  function setDisplay(){ const s=startEl.value, e=endEl.value; dispEl.value=(s&&e)?`${s} → ${e}`:''; }
+
+  document.addEventListener('DOMContentLoaded', ()=>{
+    const picker=new Litepicker({
+      element:dispEl, singleMode:false, numberOfMonths:2, numberOfColumns:2,
+      autoApply:true, format:'YYYY-MM-DD',
+      dropdowns:{minYear:2020,maxYear:2035,months:true,years:true},
+      startDate:startEl.value||null, endDate:endEl.value||null
+    });
+    picker.on('selected',(d1,d2)=>{ startEl.value=d1?d1.format('YYYY-MM-DD'):''; endEl.value=d2?d2.format('YYYY-MM-DD'):''; setDisplay(); });
+    dispEl.addEventListener('focus',()=>picker.show());
+    setDisplay();
+    setTimeout(hideLoading, 300);
+    document.getElementById('filterForm').addEventListener('submit', showLoading);
+  });
+</script>
+{% endblock %}

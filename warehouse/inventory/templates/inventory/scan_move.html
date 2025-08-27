@@ -3,21 +3,123 @@
 
 {% block extra_head %}
 <style>
-  .subtabs{display:flex;gap:8px;margin:10px 0 0}
-  .subtabs a{padding:8px 12px;border:1px solid var(--border);border-radius:10px;text-decoration:none;color:var(--text);background:#0b1220}
-  .subtabs a.active{background:#0ea5e9;color:#001018;border-color:#0ea5e9;font-weight:700}
+  .scan-wrap {
+    max-width: 980px;
+    margin: 24px auto;
+  }
+  .scan-hero {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+  .scan-hero h2 {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 28px;
+  }
+  .subtabs {
+    display: flex;
+    gap: 8px;
+    margin: 12px 0 0;
+  }
+  .subtabs a {
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--text);
+    background: #FFFFFF;
+  }
+  .subtabs a.active {
+    background: var(--primary);
+    color: #FFFFFF;
+    border-color: var(--primary);
+    font-weight: 600;
+  }
+  .card {
+    margin-bottom: 16px;
+  }
+  .grid4 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 140px;
+    gap: 16px;
+  }
+  .grid4 label {
+    font-size: 14px;
+    color: var(--muted);
+    margin-bottom: 6px;
+    display: block;
+  }
+  .actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 16px;
+  }
+  .muted {
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .pill {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    background: #E5E7EB;
+    border: 1px solid #D1D5DB;
+    padding: 8px 12px;
+    border-radius: 999px;
+    font-size: 13px;
+  }
+  .log ul {
+    margin: 12px 0 0;
+    padding-left: 18px;
+  }
+  .hint {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  .nowrap {
+    white-space: nowrap;
+  }
 
-  .scan-wrap{max-width:980px;margin:0 auto}
-  .scan-hero{background:linear-gradient(135deg,rgba(14,165,233,.12),rgba(2,132,199,.06));border:1px solid var(--border);border-radius:16px;padding:18px 20px;margin-bottom:18px}
-  .scan-hero h2{margin:0;display:flex;align-items:center;gap:10px;font-size:28px}
-  .card{background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px}
-  .grid4{display:grid;grid-template-columns:1fr 1fr 1fr 120px;gap:12px}
-  .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
-  .muted{color:var(--muted)}
-  .pill{display:inline-flex;gap:8px;align-items:center;background:#0b1220;border:1px solid #263247;padding:8px 12px;border-radius:999px}
-  .log ul{margin:0;padding-left:18px}
-  .hint{font-size:12px;color:var(--muted);margin-top:4px}
-  .nowrap{white-space:nowrap}
+  /* New toast style for notifications */
+  .toast {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    background: var(--card-bg); /* Matches the theme's card background */
+    color: var(--text); /* Dark text for contrast */
+    border: 1px solid var(--border); /* Subtle border */
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+    opacity: 0;
+    transform: translateY(12px);
+    transition: all 0.3s ease;
+    z-index: 9999;
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .toast.error {
+    border-color: var(--error); /* Red border for errors */
+    background: #FEF2F2; /* Light red background for errors */
+    color: var(--error); /* Error text color */
+  }
+  .toast.success {
+    border-color: var(--success); /* Green border for success */
+    background: #ECFDF5; /* Light green background for success */
+    color: var(--success); /* Success text color */
+  }
 </style>
 {% endblock %}
 
@@ -206,11 +308,46 @@
 
 /* Auto submit barcode (dự phòng nếu scanner không gửi Enter) */
 (function(){
-  const b=document.getElementById('f-barcode');
+  const b = document.getElementById('f-barcode');
   if (!b || b.disabled) return;
-  const form=document.getElementById('scanForm');
-  let t; b.addEventListener('input', ()=>{ clearTimeout(t); if (b.value.length>=4) t=setTimeout(()=>form.submit(),200); });
-  setTimeout(()=>{ b.focus(); b.select?.(); }, 100);
+  const form = document.getElementById('scanForm');
+  let t;
+  b.addEventListener('input', () => {
+    clearTimeout(t);
+    if (b.value.length >= 4) t = setTimeout(() => form.submit(), 200);
+  });
+  setTimeout(() => { b.focus(); b.select?.(); }, 100);
+})();
+
+/* Handle toast notification on form submission */
+(function(){
+  const form = document.getElementById('scanForm');
+  if (!form) return;
+
+  function toast(msg, type = 'error', dur = 3000) {
+    let t = document.getElementById('scan-toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'scan-toast';
+      t.className = 'toast';
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.className = 'toast'; // Reset class
+    t.classList.add(type === 'error' ? 'error' : 'success');
+    t.classList.add('show');
+    clearTimeout(t._tm);
+    t._tm = setTimeout(() => t.classList.remove('show'), dur);
+  }
+
+  form.addEventListener('submit', function(e) {
+    // Assuming the server returns an error or success message
+    // This is a placeholder; adjust based on your backend response
+    setTimeout(() => {
+      // Simulate an error message (e.g., "Không tìm thấy barcode")
+      toast('Không tìm thấy barcode: ' + (document.getElementById('f-barcode')?.value || ''), 'error');
+    }, 100); // Delay to simulate server response
+  });
 })();
 </script>
 {% endblock %}

@@ -1,17 +1,20 @@
 from pathlib import Path
 import re, io, zipfile
+import csv
 
 from django.conf import settings
 from django.shortcuts import render, redirect, get_object_or_404
 from django.db import transaction, connection
-from django.db.models import Q, Max, Count
+from django.db.models import Q, Max, Count, Sum, F, Avg
+from django.core.paginator import Paginator
 from django.contrib import messages
 from django.utils import timezone
 from django.http import Http404, HttpResponse, HttpResponseBadRequest, FileResponse
 from django.urls import reverse
 from urllib.parse import quote
+from django.db.models.functions import Extract, TruncHour
 
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from shutil import make_archive
 from .models import Product, Warehouse, Item, Inventory, Move, SavedQuery
 from .forms import GenerateForm, ScanMoveForm, ProductForm, SQLQueryForm
@@ -28,104 +31,268 @@ def config_index(request):
     # Trang hub hiển thị 3 ô: Query Panel, Products, Admin
     return render(request, "inventory/config_index.html")
 
+def dashboard_redirect(request):
+    return redirect("dashboard_warehouse")
 
-def dashboard(request):
-    # ---- Lấy filter từ querystring
-    q       = (request.GET.get("q") or "").strip()
-    action  = (request.GET.get("action") or "").strip().upper()  # IN/OUT/TRANSFER hoặc rỗng
-    wh_id   = request.GET.get("wh") or ""                        # id kho hoặc rỗng
-    start_s = request.GET.get("start") or ""                     # yyyy-mm-dd
-    end_s   = request.GET.get("end") or ""                       # yyyy-mm-dd
 
-    sort    = request.GET.get("sort") or "created_at"            # key hiển thị
-    dir_    = (request.GET.get("dir") or "desc").lower()         # asc/desc
-    per     = request.GET.get("per") or "200"
+# -------- trang dashboard warehouse ---------
+
+def dashboard_warehouse(request):
+    wh_id = request.GET.get("wh") or ""
+    q     = (request.GET.get("q") or "").strip()
+    per   = int(request.GET.get("per") or 50)
+
+    warehouses = Warehouse.objects.all().order_by("code")
+
+    inv_qs = Inventory.objects.select_related("warehouse", "product")
+    if wh_id:
+        inv_qs = inv_qs.filter(warehouse_id=wh_id)
+    if q:
+        inv_qs = inv_qs.filter(Q(product__sku__icontains=q) | Q(product__name__icontains=q))
+
+    rows = (
+        inv_qs.values("warehouse__code", "product__sku", "product__name")
+              .annotate(qty=Sum("qty"))
+              .order_by("warehouse__code", "product__sku")
+    )
+
+    pager = Paginator(list(rows), per)
+    page  = pager.get_page(request.GET.get("page", 1))
+
+    # Thêm thống kê hôm nay
+    today = timezone.now().date()
+    
+    # Base queryset cho Move hôm nay
+    move_today_qs = Move.objects.filter(
+        created_at__date=today
+    )
+    
+    # Nếu có filter warehouse, áp dụng cho move
+    if wh_id:
+        move_today_qs = move_today_qs.filter(
+            Q(from_wh_id=wh_id) | Q(to_wh_id=wh_id)
+        )
+    
+    # Tính tổng IN và OUT hôm nay (đếm số lượng items, mỗi move = 1 item)
+    today_in = move_today_qs.filter(action='IN').count()
+    today_out = move_today_qs.filter(action='OUT').count()
+
+    return render(request, "inventory/dashboard_warehouse.html", {
+        "active_tab": "warehouse",
+        "warehouses": warehouses,
+        "wh_id": str(wh_id),
+        "q": q,
+        "per": per,
+        "per_options": [25, 50, 100, 200],
+        "page": page,
+        "total_skus": rows.values("product__sku").distinct().count(),
+        "total_qty": sum(r["qty"] or 0 for r in rows),
+        "today_in": today_in,
+        "today_out": today_out,
+    })
+
+# ---- Tab 2: Barcodes (liệt kê barcode)
+
+def dashboard_barcodes(request):
+    # Lấy tham số filter
+    q = (request.GET.get('q') or '').strip()
+    wh = request.GET.get('wh') or ''
+    status = request.GET.get('status') or ''
+    date_from = request.GET.get('date_from') or ''
+    date_to = request.GET.get('date_to') or ''
+    per = int(request.GET.get('per') or 50)
+
+    # Base queryset
+    items_qs = Item.objects.select_related('product', 'warehouse').order_by('-created_at')
+
+    # Apply filters
+    if q:
+        items_qs = items_qs.filter(
+            Q(barcode_text__icontains=q) |
+            Q(product__sku__icontains=q) |
+            Q(product__name__icontains=q) |
+            Q(product__code4__icontains=q)
+        )
+    if wh:
+        items_qs = items_qs.filter(warehouse_id=wh)
+    if status:
+        items_qs = items_qs.filter(status=status)
+    if date_from:
+        try:
+            date_from_parsed = datetime.strptime(date_from, '%Y-%m-%d').date()
+            items_qs = items_qs.filter(created_at__date__gte=date_from_parsed)
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            date_to_parsed = datetime.strptime(date_to, '%Y-%m-%d').date()
+            items_qs = items_qs.filter(created_at__date__lte=date_to_parsed)
+        except ValueError:
+            pass
+
+    # === Export CSV ===
+    if (request.GET.get('export') or '').lower() == 'csv':
+        return export_barcodes_csv(items_qs)
+
+    # Statistics
+    today = timezone.now().date()
+    all_items = Item.objects.all()
+    total_items = all_items.count()
+    in_stock_count = all_items.filter(status='in_stock').count()
+    shipped_count = all_items.filter(status='shipped').count()
+    today_created = all_items.filter(created_at__date=today).count()
+    unique_products = all_items.values('product').distinct().count()
+    active_warehouses = all_items.exclude(warehouse__isnull=True).values('warehouse').distinct().count()
+
+    # Pagination
+    paginator = Paginator(items_qs, per)
+    page_number = request.GET.get('page')
+    page = paginator.get_page(page_number)
+
+    # Warehouses cho dropdown
+    warehouses = Warehouse.objects.all().order_by('code')
+
+    context = {
+        'active_tab': 'barcodes',
+        'page': page,
+        'warehouses': warehouses,
+        'q': q,
+        'wh': wh,
+        'status': status,
+        'date_from': date_from,
+        'date_to': date_to,
+        'per': per,
+        'per_options': [25, 50, 100, 200, 500],
+
+        # Statistics
+        'total_items': total_items,
+        'in_stock_count': in_stock_count,
+        'shipped_count': shipped_count,
+        'today_created': today_created,
+        'unique_products': unique_products,
+        'active_warehouses': active_warehouses,
+    }
+    return render(request, 'inventory/dashboard_barcodes.html', context)
+
+
+def export_barcodes_csv(queryset):
+    """Xuất CSV danh sách barcode theo bộ lọc hiện tại."""
+    response = HttpResponse(content_type='text/csv; charset=utf-8')
+    response['Content-Disposition'] = 'attachment; filename="barcodes.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow([
+        'barcode', 'sku', 'product_name', 'warehouse', 'status',
+        'created_at', 'import_date'
+    ])
+
+    for it in queryset.iterator(chunk_size=1000):
+        writer.writerow([
+            it.barcode_text,
+            it.product.sku if it.product else '',
+            it.product.name if it.product else '',
+            it.warehouse.code if it.warehouse else '',
+            it.status or '',
+            timezone.localtime(it.created_at).strftime('%Y-%m-%d %H:%M:%S') if it.created_at else '',
+            it.import_date.strftime('%Y-%m-%d') if it.import_date else '',
+        ])
+    return response
+
+
+# ---- Tab 3: History (đổi tên từ dashboard cũ của bạn)
+
+def dashboard_history(request):
+    """Enhanced dashboard history with better analytics and performance"""
+    
+    # Get filter parameters
+    q = (request.GET.get("q") or "").strip()
+    action = (request.GET.get("action") or "").strip().upper()
+    wh_id = request.GET.get("wh") or ""
+    start_s = request.GET.get("start") or ""
+    end_s = request.GET.get("end") or ""
+    
+    # Sorting and pagination
+    sort = request.GET.get("sort") or "created_at"
+    dir_ = (request.GET.get("dir") or "desc").lower()
+    per = request.GET.get("per") or "200"
     try:
         per = max(1, min(int(per), 2000))
     except Exception:
         per = 200
 
-    # ---- Helper parse date
+    # Date parsing helper
     def parse_date(s):
-        try:
+        try: 
             return datetime.strptime(s, "%Y-%m-%d").date()
-        except Exception:
+        except Exception: 
             return None
+    
     start_d = parse_date(start_s)
-    end_d   = parse_date(end_s)
+    end_d = parse_date(end_s)
+    
+    # Quick date ranges for template
+    today = timezone.now().date()
+    yesterday = today - timedelta(days=1)
+    week_start = today - timedelta(days=today.weekday())
+    month_start = today.replace(day=1)
 
-    # ---- Base queryset
-    qs = (Move.objects
-          .select_related("item", "item__product", "from_wh", "to_wh")
-          .all())
+    # Base queryset with optimized select_related
+    qs = Move.objects.select_related(
+        "item__product", 
+        "from_wh", 
+        "to_wh"
+    ).prefetch_related("item__product")
 
-    # ---- Áp bộ lọc chung
-    if start_d:
+    # Apply filters
+    if start_d: 
         qs = qs.filter(created_at__date__gte=start_d)
-    if end_d:
+    if end_d:   
         qs = qs.filter(created_at__date__lte=end_d)
-    if action in {"IN", "OUT"}:
+    if action in {"IN", "OUT"}: 
         qs = qs.filter(action=action)
     if wh_id:
-        # Nếu có action cụ thể thì lọc đúng chiều; nếu không thì (from|to) đều được
-        if action == "IN":
+        if action == "IN": 
             qs = qs.filter(to_wh_id=wh_id)
-        elif action == "OUT":
+        elif action == "OUT": 
             qs = qs.filter(from_wh_id=wh_id)
-        else:
+        else: 
             qs = qs.filter(Q(from_wh_id=wh_id) | Q(to_wh_id=wh_id))
     if q:
         qs = qs.filter(
             Q(item__barcode_text__icontains=q) |
             Q(item__product__sku__icontains=q) |
             Q(item__product__name__icontains=q) |
-            Q(note__icontains=q)
+            Q(item__product__code4__icontains=q) |
+            Q(note__icontains=q) |
+            Q(type_action__icontains=q)
         )
 
-    # ---- Sort an toàn theo whitelist
+    # Handle CSV export early to avoid heavy processing
+    if (request.GET.get("export") or "").lower() == "csv":
+        return export_history_csv(qs)
+
+    # Apply sorting
     sort_map = {
         "created_at": "created_at",
-        "barcode": "item__barcode_text",
+        "barcode": "item__barcode_text", 
         "sku": "item__product__sku",
         "action": "action",
         "from_wh": "from_wh__code",
-        "to_wh": "to_wh__code",
+        "to_wh": "to_wh__code", 
         "type_action": "type_action",
         "note": "note",
+        "tag": "tag",
     }
     sort_field = sort_map.get(sort, "created_at")
-    if dir_ != "asc":
+    if dir_ != "asc": 
         sort_field = "-" + sort_field
     qs = qs.order_by(sort_field)
 
-    # ---- CSV export theo đúng filter + sort (không giới hạn per)
-    if (request.GET.get("export") or "").lower() == "csv":
-        rows = qs.iterator()
-        out = StringIO()
-        writer = csv.writer(out)
-        writer.writerow(["created_at", "barcode", "sku", "product_name", "action",
-                         "from_wh", "to_wh", "type_action", "note"])
-        for m in rows:
-            writer.writerow([
-                timezone.localtime(m.created_at).strftime("%Y-%m-%d %H:%M:%S"),
-                m.item.barcode_text,
-                m.item.product.sku,
-                m.item.product.name,
-                m.action,
-                m.from_wh.code if m.from_wh else "",
-                m.to_wh.code if m.to_wh else "",
-                m.type_action or "",
-                m.note or "",
-            ])
-        resp = HttpResponse(out.getvalue(), content_type="text/csv; charset=utf-8")
-        resp["Content-Disposition"] = 'attachment; filename="moves.csv"'
-        return resp
-
-    # ---- Lấy dữ liệu hiển thị bảng (giới hạn per)
+    # Get paginated results
     logs = list(qs[:per])
     total_rows = qs.count()
 
-    # ---- Tiles tổng (áp cùng bộ lọc chung NHƯNG không bó hẹp bởi action hiện tại)
+    # Calculate analytics for filtered dataset
     def base_filtered():
         bq = Move.objects.all()
         if start_d: bq = bq.filter(created_at__date__gte=start_d)
@@ -136,37 +303,230 @@ def dashboard(request):
                 Q(item__barcode_text__icontains=q) |
                 Q(item__product__sku__icontains=q) |
                 Q(item__product__name__icontains=q) |
-                Q(note__icontains=q)
+                Q(item__product__code4__icontains=q) |
+                Q(note__icontains=q) |
+                Q(type_action__icontains=q)
             )
         return bq
 
     base_qs = base_filtered()
-    total_in        = base_qs.filter(action="IN").count()
-    total_out       = base_qs.filter(action="OUT").count()
     
-
+    # Basic counts
+    total_in = base_qs.filter(action="IN").count()
+    total_out = base_qs.filter(action="OUT").count()
+    
+    # Enhanced analytics
+    analytics = calculate_advanced_analytics(base_qs, start_d, end_d)
+    
+    # Get warehouses for dropdown
     warehouses = Warehouse.objects.all().order_by("code")
 
-    return render(
-        request,
-        "inventory/dashboard.html",
-        {
-            "logs": logs,
-            "total_rows": total_rows,
-            "total_in": total_in,
-            "total_out": total_out,
-            
+    context = {
+        "active_tab": "history",
+        "logs": logs, 
+        "total_rows": total_rows,
+        "total_in": total_in, 
+        "total_out": total_out,
+        "q": q, 
+        "action": action, 
+        "wh_id": str(wh_id),
+        "start": start_s, 
+        "end": end_s,
+        "sort": request.GET.get("sort") or "created_at",
+        "dir": dir_, 
+        "per": per,
+        "warehouses": warehouses,
+        "per_options": [100, 200, 500, 1000, 2000],
+        
+        # Quick date filters
+        "today": today.strftime("%Y-%m-%d"),
+        "yesterday": yesterday.strftime("%Y-%m-%d"),
+        "week_start": week_start.strftime("%Y-%m-%d"),
+        "month_start": month_start.strftime("%Y-%m-%d"),
+        
+        # Enhanced analytics
+        **analytics,
+    }
+    
+    return render(request, "inventory/dashboard_history.html", context)
 
-            # filter state
-            "q": q, "action": action, "wh_id": str(wh_id),
-            "start": start_s, "end": end_s,
-            "sort": request.GET.get("sort") or "created_at",
-            "dir": dir_, "per": per,
 
-            "warehouses": warehouses,
-             "per_options": [100, 200, 500, 1000, 2000],
-        },
+def calculate_advanced_analytics(base_qs, start_d, end_d):
+    """Calculate advanced analytics for the dashboard"""
+    
+    # Most active warehouse
+    most_active_wh = (
+        base_qs.values("from_wh__code", "to_wh__code")
+        .annotate(
+            warehouse=F("from_wh__code"),
+            count=Count("id")
+        )
+        .exclude(warehouse__isnull=True)
+        .order_by("-count")
+        .first()
     )
+    
+    if not most_active_wh:
+        most_active_wh = (
+            base_qs.values("to_wh__code")
+            .annotate(
+                warehouse=F("to_wh__code"),
+                count=Count("id")
+            )
+            .exclude(warehouse__isnull=True)
+            .order_by("-count")
+            .first()
+        )
+    
+    # Daily average calculation
+    daily_avg = 0
+    if start_d and end_d:
+        days_diff = (end_d - start_d).days + 1
+        if days_diff > 0:
+            daily_avg = base_qs.count() / days_diff
+    
+    # Peak hour analysis (for today only)
+    today = timezone.now().date()
+    peak_hour = None
+    peak_hour_count = 0
+    
+    today_moves = base_qs.filter(created_at__date=today)
+    if today_moves.exists():
+        hourly_stats = (
+            today_moves.annotate(hour=Extract('created_at', 'hour'))
+            .values('hour')
+            .annotate(count=Count('id'))
+            .order_by('-count')
+            .first()
+        )
+        
+        if hourly_stats:
+            peak_hour = f"{hourly_stats['hour']:02d}:00"
+            peak_hour_count = hourly_stats['count']
+    
+    # Transaction type distribution
+    type_distribution = (
+        base_qs.values('type_action')
+        .annotate(count=Count('id'))
+        .exclude(type_action='')
+        .order_by('-count')[:5]  # Top 5 transaction types
+    )
+    
+    # Recent activity trends (last 7 days)
+    week_ago = timezone.now().date() - timedelta(days=7)
+    recent_trends = []
+    
+    for i in range(7):
+        day = week_ago + timedelta(days=i)
+        day_count = base_qs.filter(created_at__date=day).count()
+        recent_trends.append({
+            'date': day,
+            'count': day_count,
+            'day_name': day.strftime('%a')
+        })
+    
+    return {
+        'most_active_wh': {
+            'code': most_active_wh['warehouse'] if most_active_wh else 'N/A',
+            'count': most_active_wh['count'] if most_active_wh else 0
+        },
+        'daily_avg': daily_avg,
+        'peak_hour': peak_hour,
+        'peak_hour_count': peak_hour_count,
+        'type_distribution': list(type_distribution),
+        'recent_trends': recent_trends,
+    }
+
+
+def export_history_csv(queryset):
+    """Optimized CSV export for transaction history"""
+    
+    response = HttpResponse(content_type='text/csv; charset=utf-8')
+    response['Content-Disposition'] = 'attachment; filename="transaction_history.csv"'
+    
+    writer = csv.writer(response)
+    
+    # Enhanced CSV headers
+    headers = [
+        'timestamp', 'date', 'time', 'barcode', 'sku', 'product_name', 
+        'product_code4', 'action', 'from_warehouse', 'to_warehouse', 
+        'transaction_type', 'note', 'tag', 'day_of_week', 'hour'
+    ]
+    writer.writerow(headers)
+    
+    # Stream the data to handle large datasets efficiently
+    for move in queryset.iterator(chunk_size=1000):
+        local_time = timezone.localtime(move.created_at)
+        writer.writerow([
+            local_time.strftime('%Y-%m-%d %H:%M:%S'),
+            local_time.strftime('%Y-%m-%d'),
+            local_time.strftime('%H:%M:%S'),
+            move.item.barcode_text,
+            move.item.product.sku,
+            move.item.product.name,
+            move.item.product.code4,
+            move.action,
+            move.from_wh.code if move.from_wh else '',
+            move.to_wh.code if move.to_wh else '',
+            move.type_action or '',
+            move.note or '',
+            move.tag,
+            local_time.strftime('%A'),  # Day of week
+            local_time.hour,  # Hour for analysis
+        ])
+    
+    return response
+
+
+def dashboard_history_api(request):
+    """API endpoint for real-time updates"""
+    
+    # Get the last known timestamp
+    last_update = request.GET.get('last_update')
+    if last_update:
+        try:
+            last_update_dt = datetime.fromisoformat(last_update.replace('Z', '+00:00'))
+            new_moves = Move.objects.filter(
+                created_at__gt=last_update_dt
+            ).select_related('item__product', 'from_wh', 'to_wh')
+            
+            # Return count and latest timestamp
+            data = {
+                'new_count': new_moves.count(),
+                'latest_timestamp': timezone.now().isoformat(),
+                'has_updates': new_moves.exists()
+            }
+            
+            return JsonResponse(data)
+        except ValueError:
+            pass
+    
+    return JsonResponse({'error': 'Invalid timestamp'}, status=400)
+
+
+def dashboard_history_stats(request):
+    """API endpoint for dashboard statistics"""
+    
+    today = timezone.now().date()
+    
+    # Real-time statistics
+    stats = {
+        'today_total': Move.objects.filter(created_at__date=today).count(),
+        'today_in': Move.objects.filter(created_at__date=today, action='IN').count(),
+        'today_out': Move.objects.filter(created_at__date=today, action='OUT').count(),
+        'active_items': Item.objects.filter(status='in_stock').count(),
+        'total_warehouses': Warehouse.objects.count(),
+        'last_update': timezone.now().isoformat(),
+    }
+    
+    # Recent activity (last hour)
+    hour_ago = timezone.now() - timedelta(hours=1)
+    stats['last_hour'] = Move.objects.filter(
+        created_at__gte=hour_ago
+    ).count()
+    
+    return JsonResponse(stats)
+
 # ---------- Helper tồn kho ----------
 def adjust_inventory(product: Product, warehouse: Warehouse, delta: int):
     """Điều chỉnh tồn kho, không cho âm."""

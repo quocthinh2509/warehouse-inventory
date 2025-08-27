@@ -1,0 +1,15 @@
+<aside class="side">
+  <div class="side-head"><span class="logo">⎔</span><strong>Dashboard</strong></div>
+  <ul>
+    <li class="{% if active_tab == 'warehouse' %}active{% endif %}">
+      <a href="{% url 'dashboard_warehouse' %}">🏬 Warehouse</a>
+    </li>
+    <li class="{% if active_tab == 'barcodes' %}active{% endif %}">
+      <a href="{% url 'dashboard_barcodes' %}">🏷️ Barcodes</a>
+    </li>
+    <li class="{% if active_tab == 'history' %}active{% endif %}">
+      <a href="{% url 'dashboard_history' %}">🕓 History</a>
+    </li>
+  </ul>
+  <div class="side-foot">v0.1</div>
+</aside>

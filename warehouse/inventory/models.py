@@ -61,7 +61,7 @@ class Item(models.Model):
     seq          = models.PositiveIntegerField(null=True, blank=True)  # sẽ auto-gen
     barcode_text = models.CharField(max_length=15, unique=True, db_index=True)  # 4+6+5
     warehouse    = models.ForeignKey("inventory.Warehouse", null=True, blank=True, on_delete=models.PROTECT)
-    status       = models.CharField(max_length=32, default="in_stock")
+    status       = models.CharField(max_length=32, default="none")
     created_at   = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
@@ -130,10 +130,16 @@ class Move(models.Model):
     created_at  = models.DateTimeField(auto_now_add=True, db_index=True)
     # ✨ THÊM MỚI:
     tag         = models.PositiveIntegerField(default=1, db_index=True)
-
+    created_by = models.ForeignKey('auth.User', null=True, blank=True, on_delete=models.SET_NULL)
+    batch_id = models.CharField(max_length=32, blank=True, db_index=True)  # Nhóm transactions
+    duration_seconds = models.PositiveIntegerField(null=True, blank=True)  # Thời gian thực hiện
     class Meta:
         ordering = ["-created_at"]
-
+        indexes = [
+            models.Index(fields=["created_at", "action"]),
+            models.Index(fields=["tag", "created_at"]),
+            models.Index(fields=["batch_id"]),
+        ]
     def __str__(self):
         return f"{self.action} {self.item.barcode_text}"
 

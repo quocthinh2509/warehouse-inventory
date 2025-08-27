@@ -3,51 +3,78 @@
 
 {% block extra_head %}
 <style>
-  /* Hero */
-  .cfg-hero{
-    background: linear-gradient(135deg, rgba(14,165,233,.12), rgba(2,132,199,.06));
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 18px 20px;
-    margin-bottom: 18px;
-  }
-  .cfg-hero h2{
-    margin:0 0 6px; display:flex; align-items:center; gap:10px; font-size:28px;
-  }
-  .cfg-hero p{ margin:0; color: var(--muted); }
-
-  /* Grid + Card */
-  .cfg-grid{
-    display:grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap:14px;
-  }
-  .cfg-card{
-    position:relative; display:block;
-    padding:18px;
+  .cfg-hero {
     background: var(--card-bg);
-    border:1px solid var(--border);
-    border-radius:14px;
-    text-decoration:none;
-    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
   }
-  .cfg-card:hover{
-    transform: translateY(-2px);
-    box-shadow: 0 10px 24px rgba(2,132,199,.22);
-    border-color: var(--primary);
+  .cfg-hero h2 {
+    margin: 0 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 28px;
+    font-weight: 700;
   }
-  .cfg-icon{
-    width:42px;height:42px;border-radius:12px;
-    display:inline-flex;align-items:center;justify-content:center;
-    background: rgba(14,165,233,.15); color: var(--primary);
-    font-size:22px; margin-bottom:8px;
+  .cfg-hero p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
   }
-  .cfg-title{ font-weight:700; font-size:18px; margin:6px 0 4px; color: var(--text); }
-  .cfg-desc{ margin:0; color: var(--muted); font-size:14px; line-height:1.45; }
-  .cfg-arrow{
-    position:absolute; right:14px; top:14px; opacity:.6; transition: transform .18s, opacity .18s;
+
+  .cfg-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
   }
-  .cfg-card:hover .cfg-arrow{ opacity:1; transform: translateX(2px); }
+  .cfg-card {
+    padding: 20px;
+    text-decoration: none;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .cfg-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+  .cfg-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(59, 130, 246, 0.1);
+    color: var(--primary);
+    font-size: 24px;
+    margin-bottom: 12px;
+  }
+  .cfg-title {
+    font-weight: 700;
+    font-size: 18px;
+    margin: 8px 0 6px;
+    color: var(--text);
+  }
+  .cfg-desc {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .cfg-arrow {
+    position: absolute;
+    right: 16px;
+    top: 16px;
+    opacity: 0.7;
+    color: var(--primary);
+    transition: transform 0.2s ease, opacity 0.2s ease;
+  }
+  .cfg-card:hover .cfg-arrow {
+    opacity: 1;
+    transform: translateX(4px);
+  }
 </style>
 {% endblock %}
 

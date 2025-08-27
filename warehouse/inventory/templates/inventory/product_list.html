@@ -1,34 +1,85 @@
 {% extends "inventory/base.html" %}
+{% block extra_head %}
+<style>
+  .product-wrap {
+    max-width: 1200px;
+    margin: 24px auto;
+  }
+  .product-card {
+    padding: 20px;
+  }
+  .flex.gap {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .flex.gap input {
+    flex: 1;
+    min-width: 200px;
+  }
+  .table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .table th, .table td {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+  }
+  .table th {
+    background: var(--card-bg);
+    font-weight: 600;
+  }
+  .table tbody tr:nth-child(odd) {
+    background: rgba(0, 0, 0, 0.02);
+  }
+  .table .text-right {
+    text-align: right;
+  }
+  .table a {
+    color: var(--primary);
+    text-decoration: none;
+    margin: 0 4px;
+  }
+  .table a:hover {
+    text-decoration: underline;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
-<h2>Products</h2>
-
-<form method="get" class="flex gap">
-  <input name="q" value="{{ q }}" placeholder="Tìm SKU / Name / Code4">
-  <button type="submit">Tìm</button>
-  <a class="btn" href="{% url 'product_create' %}">+ Tạo sản phẩm</a>
-</form>
-
-<table class="table">
-  <thead>
-    <tr>
-      <th>ID</th><th>SKU</th><th>Name</th><th>Code4</th><th></th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for p in products %}
-      <tr>
-        <td>{{ p.id }}</td>
-        <td>{{ p.sku }}</td>
-        <td>{{ p.name }}</td>
-        <td><code>{{ p.code4 }}</code></td>
-        <td class="text-right">
-          <a href="{% url 'product_update' p.id %}">Sửa</a> |
-          <a href="{% url 'product_delete' p.id %}">Xoá</a>
-        </td>
-      </tr>
-    {% empty %}
-      <tr><td colspan="5">Chưa có sản phẩm.</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="product-wrap">
+  <div class="product-card card">
+    <h2>Products</h2>
+    <form method="get" class="flex gap">
+      <input name="q" value="{{ q }}" placeholder="Tìm SKU / Name / Code4">
+      <button type="submit">Tìm</button>
+      <a class="btn" href="{% url 'product_create' %}">+ Tạo sản phẩm</a>
+    </form>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>ID</th><th>SKU</th><th>Name</th><th>Code4</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in products %}
+          <tr>
+            <td>{{ p.id }}</td>
+            <td>{{ p.sku }}</td>
+            <td>{{ p.name }}</td>
+            <td><code>{{ p.code4 }}</code></td>
+            <td class="text-right">
+              <a href="{% url 'product_update' p.id %}">Sửa</a> |
+              <a href="{% url 'product_delete' p.id %}">Xoá</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5">Chưa có sản phẩm.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 {% endblock %}

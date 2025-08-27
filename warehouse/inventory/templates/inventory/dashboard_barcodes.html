@@ -1,0 +1,245 @@
+{% extends "inventory/base.html" %}
+{% block title %}Dashboard – Barcodes{% endblock %}
+
+{% block extra_head %}
+{{ block.super }}
+<style>
+  main.container { max-width: unset; padding: 0; }
+  .dash-wrap { display:grid; grid-template-columns:260px 1fr; min-height:calc(100vh - 64px); }
+  .dash-main { padding:20px; background:var(--background); }
+
+  .dash-header{
+    background:var(--card-bg); border:1px solid var(--border); border-radius:12px;
+    padding:20px; margin-bottom:24px; box-shadow:0 2px 8px rgba(0,0,0,.05);
+  }
+  .dash-title{ font-size:28px; font-weight:700; margin:0 0 20px 0; color:var(--text); display:flex; gap:12px; align-items:center; }
+
+  /* Stats */
+  .stats-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:16px; margin-bottom:24px; }
+  .stat-card{ background:linear-gradient(135deg, var(--card-bg), #F9FAFB); border:1px solid var(--border); border-radius:12px; padding:16px; text-align:center; box-shadow:0 4px 12px rgba(0,0,0,.05); transition:transform .2s; }
+  .stat-card:hover{ transform:translateY(-4px); }
+  .stat-card .value{ font-size:24px; font-weight:700; color:var(--primary); margin:8px 0 0; }
+  .stat-card .label{ font-size:14px; color:var(--muted); margin:0; }
+  .stat-card.danger .value{ color:#DC2626 } .stat-card.success .value{ color:#059669 } .stat-card.warning .value{ color:#D97706 }
+
+  /* Quick actions – cùng kích thước */
+  .quick-actions{ display:flex; gap:12px; margin-bottom:20px; flex-wrap:wrap; }
+  :root{ --qa-height:52px; --qa-width:180px; }
+  .quick-actions .quick-btn{
+    height:var(--qa-height); width:var(--qa-width); padding:0 16px; border-radius:12px;
+    font-size:15px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; gap:10px;
+    box-shadow:0 2px 6px rgba(0,0,0,.06); border:1px solid transparent; text-decoration:none; cursor:pointer;
+    transition:transform .12s ease, filter .12s ease, background .12s ease;
+  }
+  .quick-actions .quick-btn:not(.secondary){ background:#2563eb; color:#fff; }
+  .quick-actions .quick-btn:not(.secondary):hover{ filter:brightness(.98); transform:translateY(-1px); }
+  .quick-actions .quick-btn.secondary{ background:#4b5563; color:#fff; border-color:#475569; }
+  .quick-actions .quick-btn.secondary:hover{ filter:brightness(.97); transform:translateY(-1px); }
+
+  /* Filters (đậm, dễ nhìn) */
+  .filters{ display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; margin-bottom:20px; }
+  .filter-group{ display:flex; flex-direction:column; }
+  .filter-group label{ font-size:13.5px; font-weight:700; color:#1f2937; margin-bottom:6px; }
+  .filter-group input,.filter-group select{
+    height:44px; padding:0 12px; font-size:15px; border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc; color:#0f172a;
+    transition:border-color .15s, background .15s, box-shadow .15s;
+  }
+  .filter-group input::placeholder{ color:#64748b; font-weight:500; }
+  .filter-group input:focus,.filter-group select:focus{ outline:none; border-color:#2563eb; background:#fff; box-shadow:0 0 0 3px rgba(37,99,235,.15); }
+
+  /* Table */
+  .table-card{ background:var(--card-bg); border:1px solid var(--border); border-radius:12px; overflow:hidden; margin-top:20px; }
+  .table-header{ padding:16px 20px; background:linear-gradient(135deg,#F8FAFC,#E2E8F0); border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+  .table-title{ font-size:18px; font-weight:600; margin:0; }
+  .result-count{ background:var(--primary); color:#fff; padding:6px 12px; border-radius:20px; font-size:14px; font-weight:500; }
+  .table-wrap{ overflow:auto; max-height:70vh; }
+  table{ width:100%; min-width:900px; border-collapse:collapse; }
+  thead th{ position:sticky; top:0; background:#fff; z-index:1; padding:14px 12px; text-align:left; font-size:14px; font-weight:600; color:#475569; border-bottom:1px solid #e5e7eb; text-transform:uppercase; }
+  tbody td{ padding:14px 12px; font-size:14px; border-bottom:1px solid var(--border); vertical-align:middle; }
+  tbody tr:nth-child(even){ background:rgba(0,0,0,.02); } tbody tr:hover{ background:rgba(59,130,246,.05); }
+
+  .barcode-text{ font-family:'Monaco','Consolas',monospace; font-weight:600; font-size:16px; color:var(--primary); background:#F0F8FF; padding:6px 10px; border-radius:6px; border:1px solid #E1F5FE; }
+
+  .status{ display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:20px; font-size:12px; font-weight:600; text-transform:uppercase; }
+  .status.in{ background:#DCFCE7; color:#166534; border:1px solid #BBF7D0; }
+  .status.out{ background:#FEE2E2; color:#991B1B; border:1px solid #FECACA; }
+  .status.other{ background:#F3F4F6; color:#374151; border:1px solid #D1D5DB; }
+
+  .action-buttons{ display:flex; gap:8px; }
+  .btn-sm{ padding:4px 8px; font-size:12px; border-radius:6px; border:none; cursor:pointer; transition:all .2s; text-decoration:none; display:inline-flex; align-items:center; gap:4px; }
+  .btn-view{ background:#EBF8FF; color:#1E40AF; border:1px solid #DBEAFE; } .btn-view:hover{ background:#DBEAFE; }
+  .btn-edit{ background:#FEF3C7; color:#92400E; border:1px solid #FDE68A; } .btn-edit:hover{ background:#FDE68A; }
+
+  @media (max-width:768px){
+    .dash-wrap{ grid-template-columns:1fr; }
+    .stats-grid{ grid-template-columns:repeat(2,1fr); }
+    .filters{ grid-template-columns:1fr; }
+    .quick-actions{ flex-direction:column; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dash-wrap">
+  {% include "inventory/_dash_sidebar.html" %}
+  <main class="dash-main">
+    <div class="dash-header">
+      <h2 class="dash-title">🏷️ Quản lý Barcodes</h2>
+
+      <!-- Statistics Cards -->
+      <div class="stats-grid">
+        <div class="stat-card success"><p class="label">Tổng Barcodes</p><p class="value">{{ total_items|default:0 }}</p></div>
+        <div class="stat-card"><p class="label">Trong kho</p><p class="value">{{ in_stock_count|default:0 }}</p></div>
+        <div class="stat-card warning"><p class="label">Đã xuất</p><p class="value">{{ shipped_count|default:0 }}</p></div>
+        <div class="stat-card"><p class="label">Tạo hôm nay</p><p class="value">{{ today_created|default:0 }}</p></div>
+        <div class="stat-card"><p class="label">Tổng SKU</p><p class="value">{{ unique_products|default:0 }}</p></div>
+        <div class="stat-card"><p class="label">Kho có hàng</p><p class="value">{{ active_warehouses|default:0 }}</p></div>
+      </div>
+
+      <!-- Quick Actions -->
+      <div class="quick-actions">
+        <!-- Tạo Barcode mới -->
+        <a href="{% url 'generate_labels' %}" class="quick-btn">📦 Tạo Barcode mới</a>
+
+        <!-- Xuất Excel/CSV theo bộ lọc hiện tại -->
+        <a href="?{% if request.GET %}{{ request.GET.urlencode }}&{% endif %}export=csv" class="quick-btn secondary">
+          📊 Xuất Excel
+        </a>
+
+        <!-- In Barcode: điều hướng về trang generate (tab=print nếu bạn có xử lý phía client) -->
+        <a href="{% url 'generate_labels' %}?tab=print" class="quick-btn secondary">🖨️ In Barcode</a>
+
+        <!-- Làm mới -->
+        <button type="button" class="quick-btn secondary" onclick="window.location.reload()">🔄 Làm mới</button>
+      </div>
+
+      <!-- Filters -->
+      <form method="get" class="filters">
+        <div class="filter-group">
+          <label>Tìm kiếm</label>
+          <input type="search" name="q" value="{{ q }}" placeholder="Barcode / SKU / Tên sản phẩm">
+        </div>
+        <div class="filter-group">
+          <label>Kho</label>
+          <select name="wh">
+            <option value="">Tất cả kho</option>
+            {% for w in warehouses %}
+              <option value="{{ w.id }}" {% if wh == w.id|stringformat:"s" %}selected{% endif %}>{{ w.code }} - {{ w.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Trạng thái</label>
+          <select name="status">
+            <option value="">Tất cả trạng thái</option>
+            <option value="in_stock" {% if status == "in_stock" %}selected{% endif %}>Trong kho</option>
+            <option value="shipped" {% if status == "shipped" %}selected{% endif %}>Đã xuất</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>Ngày tạo</label>
+          <input type="date" name="date_from" value="{{ date_from }}" placeholder="Từ ngày">
+        </div>
+        <div class="filter-group">
+          <label>&nbsp;</label>
+          <input type="date" name="date_to" value="{{ date_to }}" placeholder="Đến ngày">
+        </div>
+        <div class="filter-group">
+          <label>Hiển thị</label>
+          <select name="per">
+            {% for n in per_options %}
+              <option value="{{ n }}" {% if per == n %}selected{% endif %}>{{ n }} kết quả</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="filter-group">
+          <label>&nbsp;</label>
+          <button type="submit" class="quick-btn">🔍 Áp dụng</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Table -->
+    <article class="table-card">
+      <div class="table-header">
+        <h3 class="table-title">Danh sách Barcodes</h3>
+        <span class="result-count">{{ page.paginator.count }} kết quả</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Barcode</th>
+              <th>SKU</th>
+              <th>Tên sản phẩm</th>
+              <th>Kho</th>
+              <th>Trạng thái</th>
+              <th>Ngày tạo</th>
+              <th>Ngày nhập</th>
+              <th>Thao tác</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for it in page.object_list %}
+            <tr>
+              <td><span class="barcode-text">{{ it.barcode_text }}</span></td>
+              <td><strong>{{ it.product.sku }}</strong><br><small style="color:var(--muted);">{{ it.product.code4 }}</small></td>
+              <td>{{ it.product.name }}</td>
+              <td>
+                {% if it.warehouse %}
+                  <span style="background:#F0F8FF; padding:4px 8px; border-radius:4px; font-weight:500;">{{ it.warehouse.code }}</span>
+                {% else %}
+                  <span style="color:var(--muted);">-</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if it.status == "in_stock" %}
+                  <span class="status in">📦 Trong kho</span>
+                {% elif it.status == "shipped" %}
+                  <span class="status out">📤 Đã xuất</span>
+                {% else %}
+                  <span class="status other">{{ it.status }}</span>
+                {% endif %}
+              </td>
+              <td><small>{{ it.created_at|date:"d/m/Y H:i" }}</small></td>
+              <td><small>{{ it.import_date|date:"d/m/Y" }}</small></td>
+              <td>
+                <div class="action-buttons">
+                  <a href="#" class="btn-sm btn-view" title="Xem chi tiết">👁️ Xem</a>
+                  <a href="#" class="btn-sm btn-edit" title="Lịch sử di chuyển">📋 Lịch sử</a>
+                </div>
+              </td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="8" style="text-align:center; padding:40px; color:var(--muted);">
+                <div style="font-size:48px; margin-bottom:16px;">📦</div>
+                <div style="font-size:16px; font-weight:500;">Không tìm thấy barcode nào</div>
+                <div style="font-size:14px; margin-top:8px;">Thử thay đổi bộ lọc hoặc tạo barcode mới</div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </article>
+
+    <!-- Pagination -->
+    {% if page.paginator.num_pages > 1 %}
+    <div style="display:flex; justify-content:center; margin-top:24px; gap:8px;">
+      {% if page.has_previous %}
+        <a href="?{{ request.GET.urlencode }}&page=1" class="btn-sm btn-view">« Đầu</a>
+        <a href="?{{ request.GET.urlencode }}&page={{ page.previous_page_number }}" class="btn-sm btn-view">‹ Trước</a>
+      {% endif %}
+      <span style="padding:8px 12px; background:var(--primary); color:#fff; border-radius:6px; font-weight:500;">
+        {{ page.number }} / {{ page.paginator.num_pages }}
+      </span>
+      {% if page.has_next %}
+        <a href="?{{ request.GET.urlencode }}&page={{ page.next_page_number }}" class="btn-sm btn-view">Sau ›</a>
+        <a href="?{{ request.GET.urlencode }}&page={{ page.paginator.num_pages }}" class="btn-sm btn-view">Cuối »</a>
+      {% endif %}
+    </div>
+    {% endif %}
+  </main>
+</div>
+{% endblock %}

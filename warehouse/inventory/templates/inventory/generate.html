@@ -3,30 +3,113 @@
 
 {% block extra_head %}
 <style>
-  .gen-wrap{max-width:1100px;margin:0 auto}
-  .gen-h2{font-size:28px;font-weight:700;margin:6px 0 16px}
-  .gen-card{background:#0b1220;border:1px solid #263247;border-radius:12px}
-  .gen-body{padding:16px}
-  .gen-grid{display:grid;grid-template-columns:1fr 1fr 160px 160px;gap:12px}
-  .gen-field{display:flex;flex-direction:column;gap:6px}
-  .gen-label{font-size:14px;opacity:.9}
-  input.gen-input, select.gen-select{padding:10px;border-radius:8px;border:1px solid #2a3a50;background:#0e1625;color:#e6edf3}
-  #id_qty, #id_import_date{padding:10px;border-radius:8px;border:1px solid #2a3a50;background:#0e1625;color:#e6edf3;width:100%}
-  .gen-actions{display:flex;gap:12px;align-items:center;margin-top:14px;flex-wrap:wrap}
-  .btn-primary{padding:12px 18px;border-radius:10px;border:0;background:#0ea5b8;color:#001018;font-weight:700;cursor:pointer}
-  .btn-primary:hover{filter:brightness(1.1)}
-  .btn-ghost{padding:10px 14px;border-radius:10px;border:1px solid #2a3a50;background:#0e1625;color:#e6edf3;cursor:pointer}
-  .gen-note{font-size:14px;opacity:.8}
-  table.log{width:100%;border-collapse:collapse}
-  table.log th, table.log td{padding:8px;border-bottom:1px dashed #263247}
-  table.log th{text-align:left}
-  table.log td.num{text-align:right}
-
-  /* Toast nhỏ ở góc dưới phải */
-  .toast{position:fixed;right:16px;bottom:16px;background:#0ea5b8;color:#001018;
-         padding:10px 14px;border-radius:10px;font-weight:700;box-shadow:0 4px 16px rgba(0,0,0,.35);
-         opacity:0;transform:translateY(8px);transition:all .25s;z-index:9999}
-  .toast.show{opacity:1;transform:translateY(0)}
+  .gen-wrap {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+  .gen-h2 {
+    font-size: 28px;
+    font-weight: 700;
+    margin: 0 0 24px;
+  }
+  .gen-card {
+    margin-bottom: 16px;
+  }
+  .gen-body {
+    padding: 20px;
+  }
+  .gen-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 180px 180px;
+    gap: 16px;
+  }
+  .gen-field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .gen-label {
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .gen-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-top: 16px;
+    flex-wrap: wrap;
+  }
+  /* Base button style */
+  .btn {
+    padding: 10px 16px; /* Uniform padding */
+    border-radius: 8px;
+    border: none; /* Remove border for consistency */
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.2s ease;
+    width: 160px; /* Fixed width for uniformity */
+    text-align: center;
+  }
+  .btn-primary {
+    background: var(--primary);
+    color: #FFFFFF;
+  }
+  .btn-primary:hover {
+    background: #2563EB;
+    transform: translateY(-2px);
+  }
+  .btn-primary:disabled {
+    background: #93C5FD;
+    cursor: not-allowed;
+  }
+  .btn-ghost {
+    background: #FFFFFF;
+    color: var(--text);
+  }
+  .btn-ghost:hover {
+    background: #F3F4F6;
+    transform: translateY(-2px);
+  }
+  .gen-note {
+    font-size: 14px;
+    color: var(--muted);
+  }
+  table.log {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  table.log th, table.log td {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  table.log th {
+    text-align: left;
+    font-weight: 600;
+  }
+  table.log td.num {
+    text-align: right;
+  }
+  .toast {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    background: #DBEAFE; /* Light blue background for white theme */
+    color: #1F2937; /* Dark text for high contrast */
+    border: 1px solid #BFDBFE; /* Subtle border */
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+    opacity: 0;
+    transform: translateY(12px);
+    transition: all 0.3s ease;
+    z-index: 9999;
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
 </style>
 {% endblock %}
 
@@ -67,7 +150,7 @@
       </div>
 
       <div class="gen-actions">
-        <button type="submit" class="btn-primary">Thêm vào giỏ in</button>
+        <button type="submit" class="btn btn-primary">Thêm vào giỏ in</button>
         <span class="gen-note">Khi bấm “Tạo & tải ZIP”, hệ thống sẽ gen tất cả tem trong giỏ thành 1 batch.</span>
       </div>
     </div>
@@ -76,17 +159,17 @@
   <div class="gen-card" style="margin-top:14px">
     <div class="gen-body">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
-        <h3 style="margin:0;font-size:18px">🧺 Giỏ in hiện tại</h3>
-        <div style="display:flex;gap:8px">
-          <a href="{% url 'clear_queue' %}" class="btn-ghost">🧹 Xóa giỏ</a>
+        <h3 style="margin:0;font-size:20px">🧺 Giỏ in hiện tại</h3>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <a href="{% url 'clear_queue' %}" class="btn btn-primary" style="text-decoration: none; outline: none; border: none;">🧹 Xóa hết</a>
           {% if queue %}
             <!-- Gửi POST tới finalize_queue vào iframe ẩn để tải ngay -->
             <form action="{% url 'finalize_queue' %}" method="post" target="dlframe" style="display:inline">
               {% csrf_token %}
-              <button type="submit" class="btn-primary" id="btn-finalize">🧾 Tạo & tải ZIP</button>
+              <button type="submit" class="btn btn-primary" id="btn-finalize">🧾 Tạo & tải ZIP</button>
             </form>
           {% else %}
-            <button class="btn-primary" disabled>🧾 Tạo & tải ZIP</button>
+            <button class="btn btn-primary" disabled>🧾 Tạo & tải ZIP</button>
           {% endif %}
         </div>
       </div>

@@ -1,27 +1,67 @@
 {% extends "inventory/base.html" %}
+{% block extra_head %}
+<style>
+  .form-wrap {
+    max-width: 600px;
+    margin: 24px auto;
+  }
+  .form-card {
+    padding: 20px;
+  }
+  .form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .form div {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .form label {
+    font-size: 14px;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .form input:disabled {
+    background: #F3F4F6;
+    color: var(--muted);
+  }
+  .form-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 16px;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
-<h2>{{ title }}</h2>
-<form method="post" class="form">{% csrf_token %}
-  {{ form.non_field_errors }}
-  <div>
-    <label>SKU</label>
-    {{ form.sku }}
-    {{ form.sku.errors }}
+<div class="form-wrap">
+  <div class="form-card card">
+    <h2>{{ title }}</h2>
+    <form method="post" class="form">{% csrf_token %}
+      {{ form.non_field_errors }}
+      <div>
+        <label>SKU</label>
+        {{ form.sku }}
+        {{ form.sku.errors }}
+      </div>
+      <div>
+        <label>Name</label>
+        {{ form.name }}
+        {{ form.name.errors }}
+      </div>
+      {% if product %}
+        <div>
+          <label>Code4 (tự sinh, không sửa)</label>
+          <input value="{{ product.code4 }}" disabled>
+        </div>
+      {% endif %}
+      <div class="form-actions">
+        <button type="submit">Lưu</button>
+        <a href="{% url 'product_list' %}" role="button" class="secondary">Huỷ</a>
+      </div>
+    </form>
   </div>
-  <div>
-    <label>Name</label>
-    {{ form.name }}
-    {{ form.name.errors }}
-  </div>
-
-  {% if product %}
-    <div>
-      <label>Code4 (tự sinh, không sửa)</label>
-      <input value="{{ product.code4 }}" disabled>
-    </div>
-  {% endif %}
-
-  <button type="submit">Lưu</button>
-  <a href="{% url 'product_list' %}">Huỷ</a>
-</form>
+</div>
 {% endblock %}

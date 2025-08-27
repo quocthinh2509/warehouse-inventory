@@ -3,17 +3,64 @@
 
 {% block extra_head %}
 <style>
-  .chk-wrap{max-width:980px;margin:0 auto}
-  .chk-hero{background:linear-gradient(135deg,rgba(14,165,233,.12),rgba(2,132,199,.06));border:1px solid var(--border);border-radius:16px;padding:18px 20px;margin-bottom:18px}
-  .chk-hero h2{margin:0;display:flex;align-items:center;gap:10px;font-size:28px}
-  .subtabs{display:flex;gap:8px;margin-top:10px}
-  .subtabs a{padding:8px 12px;border:1px solid var(--border);border-radius:10px;text-decoration:none;color:var(--text);background:#0b1220}
-  .subtabs a.active{background:#0ea5e9;color:#001018;border-color:#0ea5e9;font-weight:700}
-  .card{background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px}
-  .history-list{list-style:none;padding:0;margin:0}
-  .history-list li{padding:0.75rem;border-bottom:1px solid var(--border)}
-  .history-list li:last-child{border-bottom:0}
-  .form-row{display:grid;grid-template-columns:1fr 160px;gap:12px}
+  .chk-wrap {
+    max-width: 980px;
+    margin: 24px auto;
+  }
+  .chk-hero {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  }
+  .chk-hero h2 {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 28px;
+  }
+  .subtabs {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .subtabs a {
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--text);
+    background: #FFFFFF;
+  }
+  .subtabs a.active {
+    background: var(--primary);
+    color: #FFFFFF;
+    border-color: var(--primary);
+    font-weight: 600;
+  }
+  .card {
+    margin-bottom: 16px;
+  }
+  .history-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .history-list li {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .history-list li:last-child {
+    border-bottom: none;
+  }
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 120px;
+    gap: 12px;
+  }
 </style>
 {% endblock %}
 

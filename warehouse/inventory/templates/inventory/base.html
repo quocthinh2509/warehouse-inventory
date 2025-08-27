@@ -6,71 +6,122 @@
   <title>{% block title %}Warehouse{% endblock %}</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
   <style>
+    
     :root {
-      --primary: #0ea5e9;
-      --primary-hover: #0284c7;
-      --background: #0f172a;
-      --card-bg: #1e293b;
-      --border: #374151;
-      --text: #e5e7eb;
-      --muted: #94a3b8;
-      --success: #22c55e;
-      --error: #ef4444;
+      --background: #FFFFFF;
+      --card-bg: #F5F5F5;
+      --border: #E5E7EB;
+      --text: #1F2937;
+      --muted: #6B7280;
+      --primary: #3B82F6;
+      --success: #10B981;
+      --error: #EF4444;
+      --font-family: 'Inter', system-ui, -apple-system, sans-serif;
     }
-    body { background: var(--background); color: var(--text); font-family: system-ui,-apple-system,sans-serif; margin: 0; }
-
-    nav.container-fluid {
-      background: var(--card-bg);
-      border-bottom: 1px solid var(--border);
-      padding: 1rem;
-      display: flex; justify-content: space-between; align-items: center;
+    
+    body {
+      font-family: var(--font-family);
+      background: var(--background);
+      color: var(--text);
+      margin: 0;
+      padding: 0;
+      line-height: 1.5;
     }
-    nav ul { display: flex; gap: .5rem; margin: 0; list-style: none; }
-    nav ul li a {
-      color: var(--text); text-decoration: none; padding: .5rem 1rem; border-radius: 8px;
-      transition: background .2s, color .2s;
-      border: 1px solid transparent;
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
     }
-    nav ul li a:hover { background: var(--primary); color: #fff; }
-    nav ul li a.active { background: var(--primary); color: #001018; border-color: var(--primary); }
-
-    main.container { max-width: 1200px; margin: 2rem auto; padding: 1rem; }
-    h1,h2,h3,h4 { color: var(--text); margin-bottom: 1.5rem; }
-
-    article, form, table {
-      background: var(--card-bg); border: 1px solid var(--border);
-      border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem;
+    
+    button, a[role="button"] {
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: none;
+      background: var(--primary);
+      color: #FFFFFF;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s ease, transform 0.2s ease;
     }
-    button, input[type="submit"], a[role="button"] {
-      background: var(--primary); color: #fff; border: none; padding: .75rem 1.5rem;
-      border-radius: 8px; font-weight: 600; cursor: pointer; transition: background .2s;
+    
+    button:hover, a[role="button"]:hover {
+      background: #2563EB;
+      transform: translateY(-2px);
     }
-    button:hover, input[type="submit"]:hover, a[role="button"]:hover { background: var(--primary-hover); }
-    button.contrast { background: var(--error); } button.contrast:hover { background: #dc2626; }
-    a[role="button"].secondary, button.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
-    a[role="button"].secondary:hover, button.secondary:hover { background: var(--border); }
-
+    
+    button.secondary, a[role="button"].secondary {
+      background: #E5E7EB;
+      color: var(--text);
+    }
+    
+    button.secondary:hover, a[role="button"].secondary:hover {
+      background: #D1D5DB;
+    }
+    
     input, select, textarea {
-      background: #111827; color: var(--text); border: 1px solid var(--border);
-      border-radius: 8px; padding: .75rem; width: 100%; box-sizing: border-box;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #FFFFFF;
+      color: var(--text);
+      font-size: 14px;
+      width: 100%;
+      box-sizing: border-box;
     }
-    table { width: 100%; border-collapse: collapse; overflow-x: auto; display: block; }
-    table th, table td { padding: .75rem; border-bottom: 1px solid var(--border); text-align: left; }
-    table th { background: var(--background); font-weight: 600; position: sticky; top: 0; }
-
-    .grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(250px,1fr)); gap: 1rem; }
-    .pagination { display: flex; gap: 1rem; justify-content: center; margin-top: 1rem; list-style: none; }
-    .pagination li a { color: var(--text); text-decoration: none; padding: .5rem 1rem; border-radius: 8px; }
-    .pagination li a:hover { background: var(--primary); color: #fff; }
-
-    .message-success { color: var(--success); }
-    .message-error { color: var(--error); }
-
-    @media (max-width: 768px) {
-      nav ul { flex-direction: column; align-items: flex-start; }
-      main.container { padding: 1rem; }
-      table { display: block; overflow-x: auto; }
+    
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
     }
+    
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+      transition: transform 0.2s ease;
+    }
+    
+    .card:hover {
+      transform: translateY(-2px);
+    }
+    
+    h2 {
+      font-size: 28px;
+      font-weight: 700;
+      margin: 0 0 16px;
+      color: var(--text);
+    }
+    
+    h3 {
+      font-size: 18px;
+      font-weight: 600;
+      margin: 0 0 12px;
+    }   
+    .dash-wrap{display:grid;grid-template-columns:200px 1fr;min-height:calc(100vh - 64px)}
+    .side{background:var(--card-bg);border-right:1px solid var(--border);padding:12px 10px}
+    .side-head{display:flex;gap:8px;align-items:center;margin-bottom:10px;font-size:16px}
+    .side .logo{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:6px;background:#6d28d9;color:#fff}
+    .side ul{list-style:none;margin:0;padding:4px}
+    .side li{margin:2px 0}
+    .side a{display:flex;gap:8px;align-items:center;text-decoration:none;padding:8px 10px;font-size: 14px;border-radius:10px;color:var(--text)}
+    .side li.active a{background:#5b21b6;color:#fff;font-weight: 600;}
+    .side a:hover{background:#ede9fe}
+    .side-foot{margin-top:auto;font-size:11px;color:var(--muted);padding:6px 8px}
+    .dash-main{padding:20px}
+    .table-card{background:var(--card-bg);border:1px solid var(--border);border-radius:16px}
+    .table-wrap{overflow:auto;max-height:70vh}
+    table{width:100%;min-width:1000px;border-collapse:collapse}
+    th,td{padding:12px;border-bottom:1px solid var(--border);text-align:left}
+    thead th{position:sticky;top:0;background:var(--card-bg);z-index:1}
+    .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:.5rem 0 1rem}
+    .pill{padding:4px 10px;border-radius:999px;background:#e5e7eb;border:1px solid #d1d5db;font-size:12px}
+    .status{padding:4px 10px;border-radius:999px;font-size:12px;display:inline-block}
+    .status.in{background:#dcfce7;border:1px solid #86efac}
+    .status.out{background:#fee2e2;border:1px solid #fca5a5}
   </style>
   {% block extra_head %}{% endblock %}
 </head>
@@ -91,8 +142,7 @@
 
       {# Dashboard #}
       <li>
-        <a href="{% url 'dashboard' %}"
-           class="{% if request.path|slice:':11' == '/dashboard/' %}active{% endif %}">Dashboard</a>
+        <a href="{% url 'dashboard' %}">Dashboard</a>
       </li>
 
       {# Config hub (active nếu /config/ hoặc /queries/ hoặc /products/ hoặc /admin/) #}

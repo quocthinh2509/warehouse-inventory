@@ -90,32 +90,141 @@
   }
 </script>
 <style>
-  .qp-page { background: var(--background); padding: 1.5rem 0; }
-  .qp-container { max-width: 1200px; margin: 0 auto; }
-  .qp-titlebar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
-  .qp-h1 { font-size: 1.75rem; font-weight: 700; margin: 0; }
-  .qp-grid { display: grid; grid-template-columns: 320px 1fr; gap: 1.25rem; }
-  .qp-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; }
-  .qp-left .qp-header { padding: 0.875rem 1.125rem; border-bottom: 1px solid var(--border); font-weight: 600; text-align: center; }
-  .qp-list { max-height: calc(100vh - 260px); overflow: auto; padding: 0.5rem; }
-  .qp-item { display: block; padding: 0.625rem 0.75rem; border-radius: 8px; color: var(--text); text-decoration: none; border: 1px solid transparent; }
-  .qp-item small { display: block; color: var(--muted); font-size: 0.75rem; margin-top: 0.125rem; }
-  .qp-item:hover { background: var(--border); border-color: var(--border); }
-  .qp-item.active { background: #0b2a55; border-color: #325bbf; }
-  .qp-viewbar { background: var(--background); border-bottom: 1px solid var(--border); padding: 0.75rem 1.125rem; border-radius: 12px 12px 0 0; }
-  .qp-viewbar b { color: #fff; }
-  .qp-cols { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 0.5rem; }
-  .qp-pill { padding: 0.125rem 0.5rem; border: 1px solid var(--border); border-radius: 999px; font-size: 0.75rem; background: var(--background); }
-  .qp-muted { color: var(--muted); font-size: 0.875rem; }
-  .qp-sql { min-height: 140px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  .qp-actions { display: flex; gap: 0.625rem; margin-top: 0.75rem; }
-  .qp-results-head { display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1.125rem; border-bottom: 1px solid var(--border); }
-  .qp-badges { display: flex; align-items: center; gap: 0.875rem; color: var(--muted); font-size: 0.875rem; }
-  .qp-scroll-hint { color: var(--muted); font-size: 0.75rem; }
-  .qp-success { color: var(--success); }
-  .qp-error { color: var(--error); }
-  .qp-table-wrap { overflow: auto; max-height: 60vh; }
-  .qp-table th, .qp-table td { padding: 0.625rem 0.75rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
-  .qp-table th { background: var(--background); position: sticky; top: 0; z-index: 1; }
+  .qp-page {
+    padding: 24px 0;
+  }
+  .qp-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+  .qp-titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+  }
+  .qp-h1 {
+    font-size: 28px;
+    font-weight: 700;
+    margin: 0;
+  }
+  .qp-grid {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 16px;
+  }
+  .qp-card {
+    margin-bottom: 16px;
+  }
+  .qp-left .qp-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    text-align: center;
+  }
+  .qp-list {
+    max-height: calc(100vh - 280px);
+    overflow: auto;
+    padding: 8px;
+  }
+  .qp-item {
+    display: block;
+    padding: 12px;
+    border-radius: 8px;
+    color: var(--text);
+    text-decoration: none;
+    border: 1px solid transparent;
+  }
+  .qp-item small {
+    display: block;
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 4px;
+  }
+  .qp-item:hover {
+    background: #F3F4F6;
+  }
+  .qp-item.active {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: var(--primary);
+  }
+  .qp-viewbar {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .qp-viewbar b {
+    color: var(--text);
+  }
+  .qp-cols {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .qp-pill {
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 12px;
+    background: #FFFFFF;
+  }
+  .qp-pane {
+    padding: 16px;
+  }
+  .qp-muted {
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .qp-sql {
+    min-height: 160px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    width: 100%;
+    resize: vertical;
+  }
+  .qp-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .qp-results-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .qp-badges {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .qp-scroll-hint {
+    font-size: 12px;
+  }
+  .qp-success {
+    color: var(--success);
+  }
+  .qp-error {
+    color: var(--error);
+  }
+  .qp-table-wrap {
+    overflow: auto;
+    max-height: 60vh;
+  }
+  .qp-table th, .qp-table td {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .qp-table th {
+    background: var(--card-bg);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    font-weight: 600;
+  }
 </style>
 {% endblock %}

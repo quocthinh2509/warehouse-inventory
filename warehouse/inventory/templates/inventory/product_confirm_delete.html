@@ -1,9 +1,39 @@
 {% extends "inventory/base.html" %}
+{% block extra_head %}
+<style>
+  .delete-wrap {
+    max-width: 600px;
+    margin: 24px auto;
+  }
+  .delete-card {
+    padding: 20px;
+    text-align: center;
+  }
+  .delete-card p {
+    font-size: 16px;
+    color: var(--muted);
+    margin: 0 0 24px;
+  }
+  .delete-card strong {
+    color: var(--text);
+  }
+  .delete-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
-<h2>Xoá sản phẩm</h2>
-<p>Bạn chắc chắn muốn xoá: <strong>{{ product.sku }}</strong> - {{ product.name }} (Code4: {{ product.code4 }})?</p>
-<form method="post">{% csrf_token %}
-  <button type="submit">Xoá</button>
-  <a href="{% url 'product_list' %}">Huỷ</a>
-</form>
+<div class="delete-wrap">
+  <div class="delete-card card">
+    <h2>Xoá sản phẩm</h2>
+    <p>Bạn chắc chắn muốn xoá: <strong>{{ product.sku }}</strong> - {{ product.name }} (Code4: {{ product.code4 }})?</p>
+    <form method="post" class="delete-actions">{% csrf_token %}
+      <button type="submit">Xoá</button>
+      <a href="{% url 'product_list' %}" role="button" class="secondary">Huỷ</a>
+    </form>
+  </div>
+</div>
 {% endblock %}
