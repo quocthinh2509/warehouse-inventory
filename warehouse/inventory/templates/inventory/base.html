@@ -129,15 +129,10 @@
   <nav class="container-fluid">
     <ul><li><strong></strong></li></ul>
     <ul>
-      {# Generate #}
-      <li>
-        <a href="{% url 'generate_labels' %}"
-           class="{% if request.path|slice:':10' == '/generate/' %}active{% endif %}">Generate</a>
-      </li>
 
       {# Scan & Check #}
       <li>
-        <a href="{% url 'scan_scan' %}" class="{% if request.path|slice:':13' == '/scan-check/' %}contrast{% endif %}">Scan & Check</a>
+        <a href="{% url 'scan_scan' %}" class="{% if request.path|slice:':13' == '/scan-check/' %}contrast{% endif %}">Barcode</a>
       </li>
 
       {# Dashboard #}

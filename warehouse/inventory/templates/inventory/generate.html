@@ -110,13 +110,53 @@
     opacity: 1;
     transform: translateY(0);
   }
+  .gen-hero{
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.05);
+  }
+  .gen-hero h2{
+    margin:0;
+    display:flex; align-items:center; gap:12px;
+    font-size:28px;
+  }
+
+  /* === Subtabs đồng bộ === */
+  .subtabs{
+    display:flex; gap:8px; margin:12px 0 0;
+  }
+  .subtabs a{
+    padding:8px 16px;
+    border:1px solid var(--border);
+    border-radius:8px;
+    text-decoration:none;
+    color:var(--text);
+    background:#fff;
+  }
+  .subtabs a.active{
+    background:var(--primary);
+    color:#fff;
+    border-color:var(--primary);
+    font-weight:600;
+  }
+
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="gen-wrap">
-  <h2 class="gen-h2">🧾 Generate Labels</h2>
-
+  <div class="gen-hero">
+    <h2>🧾 Generate Labels</h2>
+    <div class="subtabs">
+      <a href="{% url 'scan_scan' %}">Scan</a>
+      <a href="{% url 'scan_check' %}">Check</a>
+      <a href="{% url 'generate_labels' %}" class="active">Create</a>
+    </div>
+  </div>
+  
   {{ products|json_script:"js-products" }}
 
   <!-- BỎ panel last_batch -->

@@ -536,7 +536,6 @@ def adjust_inventory(product: Product, warehouse: Warehouse, delta: int):
     inv.qty = max(0, inv.qty + delta)
     inv.save(update_fields=["qty"])
 
-
 def _get_queue(request):
     return request.session.setdefault("gen_queue", [])
 
@@ -934,31 +933,61 @@ def product_delete(request, pk):
     return render(request, "inventory/product_confirm_delete.html", {"product": product})
 
 # ---------- Query Panel ----------
+# def _execute_sql(sql: str):
+#     """
+#     Cho phép chạy SELECT/INSERT/UPDATE/DELETE/PRAGMA... có kiểm soát:
+#     chỉ chấp nhận khi từ đầu tiên thuộc whitelist.
+#     """
+#     allowed = (
+#         "select",
+#         "with",
+#         "insert",
+#         "update",
+#         "delete",
+#         "replace",
+#         "pragma",
+#         "begin",
+#         "commit",
+#         "rollback",
+#     )
+#     if not re.match(r"^\s*(" + "|".join(allowed) + r")\b", sql, flags=re.IGNORECASE | re.DOTALL):
+#         raise ValueError("Chỉ cho phép: " + ", ".join(allowed))
+
+#     with connection.cursor() as cur:
+#         cur.execute(sql)
+#         cols = [c[0] for c in cur.description] if cur.description else []
+#         rows = cur.fetchall() if cur.description else []
+#     return cols, rows
+
 def _execute_sql(sql: str):
     """
-    Cho phép chạy SELECT/INSERT/UPDATE/DELETE/PRAGMA... có kiểm soát:
-    chỉ chấp nhận khi từ đầu tiên thuộc whitelist.
+    Cho phép chạy SELECT/WITH/INSERT/UPDATE/DELETE/REPLACE/PRAGMA/BEGIN/COMMIT/ROLLBACK.
+    Trả về (cols, rows, affected):
+      - Nếu là SELECT/WITH: trả cols + rows, affected = len(rows)
+      - Nếu là lệnh ghi:   cols=[], rows=[], affected = rowcount (nếu có)
     """
     allowed = (
-        "select",
-        "with",
-        "insert",
-        "update",
-        "delete",
-        "replace",
-        "pragma",
-        "begin",
-        "commit",
-        "rollback",
+        "select", "with", "insert", "update", "delete",
+        "replace", "pragma", "begin", "commit", "rollback",
     )
-    if not re.match(r"^\s*(" + "|".join(allowed) + r")\b", sql, flags=re.IGNORECASE | re.DOTALL):
+    if not re.match(r"^\s*(" + "|".join(allowed) + r")\b",
+                    sql, flags=re.IGNORECASE | re.DOTALL):
         raise ValueError("Chỉ cho phép: " + ", ".join(allowed))
+
+    # (tuỳ chọn) Chặn multi-statements để an toàn hơn
+    # if ";" in sql.strip().rstrip(";"):
+    #     raise ValueError("Chỉ chạy 1 câu lệnh mỗi lần.")
 
     with connection.cursor() as cur:
         cur.execute(sql)
-        cols = [c[0] for c in cur.description] if cur.description else []
-        rows = cur.fetchall() if cur.description else []
-    return cols, rows
+        if cur.description:  # SELECT/WITH trả về dữ liệu
+            cols = [c[0] for c in cur.description]
+            rows = cur.fetchall()
+            affected = len(rows)
+        else:                # INSERT/UPDATE/DELETE...
+            cols, rows = [], []
+            affected = cur.rowcount if getattr(cur, "rowcount", -1) != -1 else None
+    return cols, rows, affected
 
 
 def _list_db_tables_with_type():
@@ -988,35 +1017,52 @@ def _list_db_tables_with_type():
             items.append({"name": name, "type": "BASE TABLE"})
     return items
 
-def _execute_select_sql(sql: str):
-    """Chỉ cho phép SELECT để an toàn."""
-    if not sql.strip().lower().startswith("select"):
-        raise ValueError("Chỉ cho phép SELECT.")
+# views.py
+def _execute_sql(sql: str):
+    """
+    Cho phép chạy SELECT/INSERT/UPDATE/DELETE/PRAGMA... có kiểm soát:
+    chỉ chấp nhận khi từ đầu tiên thuộc whitelist.
+    """
+    allowed = (
+        "select", "with", "insert", "update", "delete",
+        "replace", "pragma", "begin", "commit", "rollback",
+    )
+    if not re.match(r"^\s*(" + "|".join(allowed) + r")\b", sql,
+                    flags=re.IGNORECASE | re.DOTALL):
+        raise ValueError("Chỉ cho phép: " + ", ".join(allowed))
+
     with connection.cursor() as cur:
         cur.execute(sql)
-        cols = [c[0] for c in cur.description]
-        rows = cur.fetchall()
-    return cols, rows
+        if cur.description:          # SELECT … => có kết quả
+            cols = [c[0] for c in cur.description]
+            rows = cur.fetchall()
+            rowcount = len(rows)
+        else:                         # INSERT/UPDATE/DELETE … => không có result set
+            cols, rows = [], []
+            rowcount = cur.rowcount   # số dòng bị ảnh hưởng
+    return cols, rows, rowcount
 
+
+
+# views.py
 def query_panel(request):
     tables = _list_db_tables_with_type()
     table_names = [t["name"] for t in tables]
-
     selected = request.GET.get("table")
     if selected not in table_names:
         selected = table_names[0] if table_names else None
 
-    # Clear query -> về mẫu
+    # Clear -> về mặc định
     if request.GET.get("clear") == "1":
         return redirect(f"{request.path}?table={selected}" if selected else request.path)
 
-    # SQL mặc định: preview bảng đang chọn
+    # SQL mặc định (preview bảng)
     if request.method == "POST":
-        sql_text = request.POST.get("sql", "").strip()
+        sql_text = (request.POST.get("sql") or "").strip()
     else:
         sql_text = f"SELECT * FROM {selected} LIMIT 100" if selected else ""
 
-    # Lấy danh sách cột của bảng đang xem (nếu có)
+    # Lấy danh sách cột của bảng đang xem
     columns = None
     if selected:
         try:
@@ -1026,23 +1072,29 @@ def query_panel(request):
         except Exception:
             columns = None
 
-    # Chạy query
+    # Run query
     result = None
     error = None
     rows_count = None
+    affected_count = None   # ✨ thêm biến này
     status_text = None
 
     if request.method == "POST":
         try:
-            cols, rows = _execute_select_sql(sql_text)
-            result = {"cols": cols, "rows": rows}
-            rows_count = len(rows)
-            status_text = f"Query executed successfully. {rows_count} rows returned."
+            cols, rows, rc = _execute_sql(sql_text)
+            if cols:  # có result set -> SELECT/WITH
+                result = {"cols": cols, "rows": rows}
+                rows_count = len(rows)
+                status_text = f"Query executed successfully. {rows_count} rows returned."
+            else:     # không có result set -> INSERT/UPDATE/DELETE...
+                affected_count = rc
+                rows_count = 0
+                status_text = f"Query executed successfully. {rc} rows affected."
             messages.success(request, status_text)
         except Exception as e:
             error = str(e)
     else:
-        # GET: tự preview
+        # GET: preview bảng đang chọn
         if selected:
             try:
                 cols, rows = _execute_select_sql(f"SELECT * FROM {selected} LIMIT 100")
@@ -1068,6 +1120,8 @@ def query_panel(request):
         "result": result,
         "error": error,
         "rows_count": rows_count,
+        "affected_count": affected_count,  # ✨ đẩy ra template
         "status_text": status_text,
     }
     return render(request, "inventory/query_panel.html", ctx)
+

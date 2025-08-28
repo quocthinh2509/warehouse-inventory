@@ -61,6 +61,14 @@
     grid-template-columns: 1fr 120px;
     gap: 12px;
   }
+  .chk-hero .hero-row{
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+  }
+  .chk-hero .hero-actions .btn{
+    padding:8px 14px; border-radius:8px; border:1px solid var(--primary);
+    background:var(--primary); color:#fff; font-weight:600; text-decoration:none;
+  }
+  .chk-hero .hero-actions .btn:hover{ filter:brightness(0.95); }
 </style>
 {% endblock %}
 
@@ -68,10 +76,15 @@
 <div class="chk-wrap">
   <div class="chk-hero">
     <h2>🔎 Check Barcode</h2>
+    {% comment %} <div class="subtabs">
+      <a href="{% url 'scan_scan' %}" class="{% if subtab == 'scan' %}active{% endif %}">Scan</a>
+      <a href="{% url 'scan_check' %}" class="{% if subtab == 'check' %}active{% endif %}">Check</a>
+    </div> {% endcomment %}
     <div class="subtabs">
       <a href="{% url 'scan_scan' %}" class="{% if subtab == 'scan' %}active{% endif %}">Scan</a>
       <a href="{% url 'scan_check' %}" class="{% if subtab == 'check' %}active{% endif %}">Check</a>
-    </div>
+      <a href="{% url 'generate_labels' %}" class="{% if subtab == 'generate' %}active{% endif %}">Create</a>
+    </div>    
   </div>
 
   <article class="card">

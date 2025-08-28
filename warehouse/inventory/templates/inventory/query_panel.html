@@ -1,13 +1,16 @@
 {% extends "inventory/base.html" %}
 {% block title %}Query Panel{% endblock %}
+
 {% block content %}
 <div class="qp-page">
   <div class="qp-container">
     <div class="qp-titlebar">
-      <h1>Database Query Panel</h1>
+      <h1 class="qp-h1">Database Query Panel</h1>
       <a href="{% url 'query_panel' %}{% if selected %}?table={{ selected }}&clear=1{% endif %}" role="button" class="secondary">Clear Query</a>
     </div>
+
     <div class="qp-grid">
+      <!-- Left: table list -->
       <div class="qp-card qp-left">
         <div class="qp-header">Database Tables</div>
         <div class="qp-list">
@@ -23,51 +26,78 @@
           {% endif %}
         </div>
       </div>
+
+      <!-- Right: editor + results -->
       <div>
         <div class="qp-card">
           <div class="qp-viewbar">
             Currently viewing{% if selected_type %} {{ selected_type|lower }}:{% endif %} <b>{{ selected|default:"(chưa chọn bảng)" }}</b>
             {% if columns %}
               <div class="qp-cols">
-                {% for c in columns %}<span class="qp-pill">{{ c }}</span>{% endfor %}
+                {% for c in columns %}
+                  <span class="qp-pill">{{ c }}</span>
+                {% endfor %}
               </div>
             {% endif %}
           </div>
+
           <div class="qp-pane">
             <div class="qp-muted">SQL Query:</div>
             <form method="post">
               {% csrf_token %}
               <textarea name="sql" class="qp-sql" spellcheck="false">{{ sql }}</textarea>
+
               <div class="qp-actions">
                 <button type="submit" name="run" value="1">Execute Query</button>
-                {% if selected %}<button type="button" class="secondary" onclick="setSample()">Sample Query</button>{% endif %}
+                {% if selected %}
+                  <button type="button" class="secondary" onclick="setSample()">Sample Query</button>
+                {% endif %}
               </div>
-              <div class="qp-muted">Chỉ cho phép <code>SELECT</code>.</div>
-              {% if error %}<div class="qp-error">{{ error }}</div>{% endif %}
+
+              <!-- Supported statements note -->
+              <div class="qp-muted">
+                Hỗ trợ: <code>SELECT</code>, <code>INSERT</code>, <code>UPDATE</code>, <code>DELETE</code>,
+                <code>REPLACE</code>, <code>PRAGMA</code>, <code>BEGIN</code>/<code>COMMIT</code>/<code>ROLLBACK</code>.
+              </div>
+
+              {% if error %}
+                <div class="qp-error" style="margin-top:8px">{{ error }}</div>
+              {% endif %}
               {% if messages %}
                 {% for m in messages %}
-                  <div class="qp-{{ m.tags|default:'success' }}">{{ m }}</div>
+                  <div class="qp-{{ m.tags|default:'success' }}" style="margin-top:8px">{{ m }}</div>
                 {% endfor %}
               {% endif %}
             </form>
           </div>
         </div>
+
         <div class="qp-card">
           <div class="qp-results-head">
             <div>Query Results</div>
             <div class="qp-badges">
               <span>Rows returned: {{ rows_count|default:0 }}</span>
+              {% if affected_count is not None %}
+                <span>Affected: {{ affected_count }}</span>
+              {% endif %}
               <span class="qp-scroll-hint">← Scroll horizontally to view all columns →</span>
               {% if status_text %}<span class="qp-success">{{ status_text }}</span>{% endif %}
             </div>
           </div>
+
           <div class="qp-table-wrap">
             {% if result %}
               <table class="qp-table">
-                <thead><tr>{% for c in result.cols %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+                <thead>
+                  <tr>
+                    {% for c in result.cols %}<th>{{ c }}</th>{% endfor %}
+                  </tr>
+                </thead>
                 <tbody>
                   {% for r in result.rows %}
-                    <tr>{% for v in r %}<td>{{ v }}</td>{% endfor %}</tr>
+                    <tr>
+                      {% for v in r %}<td>{{ v }}</td>{% endfor %}
+                    </tr>
                   {% endfor %}
                 </tbody>
               </table>
@@ -77,9 +107,10 @@
           </div>
         </div>
       </div>
-    </div>
+    </div> <!-- /grid -->
   </div>
 </div>
+
 <script>
   function setSample() {
     const t = "{{ selected }}";
@@ -89,142 +120,43 @@
     ta.focus();
   }
 </script>
+
 <style>
-  .qp-page {
-    padding: 24px 0;
-  }
-  .qp-container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 0 24px;
-  }
-  .qp-titlebar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 24px;
-  }
-  .qp-h1 {
-    font-size: 28px;
-    font-weight: 700;
-    margin: 0;
-  }
-  .qp-grid {
-    display: grid;
-    grid-template-columns: 340px 1fr;
-    gap: 16px;
-  }
-  .qp-card {
-    margin-bottom: 16px;
-  }
-  .qp-left .qp-header {
-    padding: 16px;
-    border-bottom: 1px solid var(--border);
-    font-weight: 600;
-    text-align: center;
-  }
-  .qp-list {
-    max-height: calc(100vh - 280px);
-    overflow: auto;
-    padding: 8px;
-  }
-  .qp-item {
-    display: block;
-    padding: 12px;
-    border-radius: 8px;
-    color: var(--text);
-    text-decoration: none;
-    border: 1px solid transparent;
-  }
-  .qp-item small {
-    display: block;
-    color: var(--muted);
-    font-size: 12px;
-    margin-top: 4px;
-  }
-  .qp-item:hover {
-    background: #F3F4F6;
-  }
-  .qp-item.active {
-    background: rgba(59, 130, 246, 0.1);
-    border-color: var(--primary);
-  }
-  .qp-viewbar {
-    padding: 16px;
-    border-bottom: 1px solid var(--border);
-  }
-  .qp-viewbar b {
-    color: var(--text);
-  }
-  .qp-cols {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 8px;
-  }
-  .qp-pill {
-    padding: 4px 8px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    font-size: 12px;
-    background: #FFFFFF;
-  }
-  .qp-pane {
-    padding: 16px;
-  }
-  .qp-muted {
-    color: var(--muted);
-    font-size: 14px;
-  }
-  .qp-sql {
-    min-height: 160px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    width: 100%;
-    resize: vertical;
-  }
-  .qp-actions {
-    display: flex;
-    gap: 12px;
-    margin-top: 12px;
-  }
-  .qp-results-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px;
-    border-bottom: 1px solid var(--border);
-  }
-  .qp-badges {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    color: var(--muted);
-    font-size: 14px;
-  }
-  .qp-scroll-hint {
-    font-size: 12px;
-  }
-  .qp-success {
-    color: var(--success);
-  }
-  .qp-error {
-    color: var(--error);
-  }
-  .qp-table-wrap {
-    overflow: auto;
-    max-height: 60vh;
-  }
-  .qp-table th, .qp-table td {
-    padding: 12px;
-    border-bottom: 1px solid var(--border);
-    white-space: nowrap;
-  }
-  .qp-table th {
-    background: var(--card-bg);
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    font-weight: 600;
-  }
+  .qp-page { padding: 24px 0; }
+  .qp-container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+  .qp-titlebar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  .qp-h1 { font-size: 28px; font-weight: 700; margin: 0; }
+
+  .qp-grid { display: grid; grid-template-columns: 340px 1fr; gap: 16px; }
+  .qp-card { margin-bottom: 16px; }
+
+  .qp-left .qp-header { padding: 16px; border-bottom: 1px solid var(--border); font-weight: 600; text-align: center; }
+  .qp-list { max-height: calc(100vh - 280px); overflow: auto; padding: 8px; }
+  .qp-item { display: block; padding: 12px; border-radius: 8px; color: var(--text); text-decoration: none; border: 1px solid transparent; }
+  .qp-item small { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .qp-item:hover { background: #F3F4F6; }
+  .qp-item.active { background: rgba(59,130,246,.1); border-color: var(--primary); }
+
+  .qp-viewbar { padding: 16px; border-bottom: 1px solid var(--border); }
+  .qp-viewbar b { color: var(--text); }
+
+  .qp-cols { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .qp-pill { padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; background: #fff; }
+
+  .qp-pane { padding: 16px; }
+  .qp-muted { color: var(--muted); font-size: 14px; }
+  .qp-sql { min-height: 160px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; width: 100%; resize: vertical; }
+
+  .qp-actions { display: flex; gap: 12px; margin-top: 12px; }
+
+  .qp-results-head { display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid var(--border); }
+  .qp-badges { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 14px; }
+  .qp-scroll-hint { font-size: 12px; }
+  .qp-success { color: var(--success); }
+  .qp-error { color: var(--error); }
+
+  .qp-table-wrap { overflow: auto; max-height: 60vh; }
+  .qp-table th, .qp-table td { padding: 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .qp-table th { background: var(--card-bg); position: sticky; top: 0; z-index: 1; font-weight: 600; }
 </style>
 {% endblock %}

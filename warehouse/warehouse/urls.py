@@ -27,14 +27,13 @@ urlpatterns = [
     path("admin/", admin.site.urls),
 
     # Vào web -> Generate
-    path("", views.index, name="index"),
+    path("", views.dashboard_redirect, name="dashboard"),
 
     # Generate & giỏ in
-    path("generate/", views.generate_labels, name="generate_labels"),
-    path("generate/clear/", views.clear_queue, name="clear_queue"),
-    path("generate/remove/<int:idx>/", views.remove_queue_line, name="remove_queue_line"),
-    path("generate/finalize/", views.finalize_queue, name="finalize_queue"),
-
+    path("scan-check/generate/", views.generate_labels, name="generate_labels"),
+    path("scan-check/generate/clear/", views.clear_queue, name="clear_queue"),
+    path("scan-check/generate/remove/<int:idx>/", views.remove_queue_line, name="remove_queue_line"),
+    path("scan-check/generate/finalize/", views.finalize_queue, name="finalize_queue"),
     # Tải ZIP
     path("labels/download/<slug:batch>/", views.download_batch, name="download_batch"),
 

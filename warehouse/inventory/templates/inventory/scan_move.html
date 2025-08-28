@@ -120,6 +120,14 @@
     background: #ECFDF5; /* Light green background for success */
     color: var(--success); /* Success text color */
   }
+  .scan-hero .hero-row{
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+  }
+  .scan-hero .hero-actions .btn{
+    padding:8px 14px; border-radius:8px; border:1px solid var(--primary);
+    background:var(--primary); color:#fff; font-weight:600; text-decoration:none;
+  }
+  .scan-hero .hero-actions .btn:hover{ filter:brightness(0.95); }
 </style>
 {% endblock %}
 
@@ -127,10 +135,15 @@
 <div class="scan-wrap">
   <div class="scan-hero">
     <h2>📦 Scan &amp; Check</h2>
+    {% comment %} <div class="subtabs">
+      <a href="{% url 'scan_scan' %}" class="{% if subtab == 'scan' %}active{% endif %}">Scan</a>
+      <a href="{% url 'scan_check' %}" class="{% if subtab == 'check' %}active{% endif %}">Check</a>
+    </div> {% endcomment %}
     <div class="subtabs">
       <a href="{% url 'scan_scan' %}" class="{% if subtab == 'scan' %}active{% endif %}">Scan</a>
       <a href="{% url 'scan_check' %}" class="{% if subtab == 'check' %}active{% endif %}">Check</a>
-    </div>
+      <a href="{% url 'generate_labels' %}" class="{% if subtab == 'generate' %}active{% endif %}">Create</a>
+    </div>    
   </div>
 
   {{ tag_map|json_script:"js-tagmap" }}
