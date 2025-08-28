@@ -1,0 +1,60 @@
+{% extends "inventory/base.html" %}
+{% block title %}Manual IN/OUT – Start{% endblock %}
+
+{% block extra_head %}
+<style>
+  .scan-wrap{max-width:980px;margin:24px auto}
+  .scan-hero{background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:24px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
+  .scan-hero h2{margin:0;display:flex;align-items:center;gap:12px;font-size:28px}
+  .subtabs{display:flex;gap:8px;margin:12px 0 0}
+  .subtabs a{padding:8px 16px;border:1px solid var(--border);border-radius:8px;text-decoration:none;color:var(--text);background:#fff}
+  .subtabs a.active{background:var(--primary);color:#fff;border-color:var(--primary);font-weight:600}
+  .card{margin-bottom:16px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+  label{font-size:14px;color:var(--muted);margin-bottom:6px;display:block}
+  .actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:16px}
+  .muted{color:var(--muted);font-size:14px}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="scan-wrap">
+  {% include "inventory/_manual_tabs.html" %}
+
+  <article class="card">
+    <form method="post">{% csrf_token %}
+      <div class="grid3">
+        <div>
+          <label>Action</label>
+          <select name="action" required>
+            <option value="IN">IN</option>
+            <option value="OUT">OUT</option>
+          </select>
+        </div>
+
+        <div>
+          <label>Warehouse</label>
+          <select name="wh" required>
+            {% for w in warehouses %}
+              <option value="{{ w.id }}">{{ w.code }} — {{ w.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div>
+          <label>&nbsp;</label>
+          <label style="display:flex;gap:8px;align-items:center">
+            <input type="checkbox" name="allow_consume_itemized">
+            <span>Cho phép dùng hàng có barcode nếu thiếu bulk</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="submit">Bắt đầu batch</button>
+        <span class="muted">Tạo batch mới và chuyển tới Preview để thêm dòng.</span>
+      </div>
+    </form>
+  </article>
+</div>
+{% endblock %}

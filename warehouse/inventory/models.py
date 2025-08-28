@@ -116,23 +116,47 @@ class Inventory(models.Model):
 
     def __str__(self):
         return f"{self.product.code4} @ {self.warehouse.code}: {self.qty}"
+    
+    @staticmethod
+    def adjust(product, warehouse, delta: int):
+        """Điều chỉnh tồn kho (âm/ dương)."""
+        inv, _ = Inventory.objects.select_for_update().get_or_create(
+            product=product, warehouse=warehouse, defaults={"qty": 0}
+        )
+        new_qty = inv.qty + delta
+        if new_qty < 0:
+            raise ValidationError(f"Tồn kho âm cho {product} @ {warehouse}: {inv.qty} + ({delta})")
+        inv.qty = new_qty
+        inv.save(update_fields=["qty"])
 
 
-# 5) Log di chuyển (chỉ IN/OUT) + type_action
+
+
+
+# 5) Log di chuyển (IN/OUT) — hỗ trợ cả 'itemized' lẫn 'bulk'
 class Move(models.Model):
     ACTIONS = (("IN", "IN"), ("OUT", "OUT"))
-    item        = models.ForeignKey(Item, on_delete=models.CASCADE, related_name="moves")
+
+    # --- Chế độ 1: theo Item (qty ngầm định = 1) ---
+    item   = models.ForeignKey(Item, null=True, blank=True, on_delete=models.CASCADE, related_name="moves")
+
+    # --- Chế độ 2: theo Bulk (không item) ---
+    product  = models.ForeignKey(Product, null=True, blank=True, on_delete=models.PROTECT)
+    quantity = models.PositiveIntegerField(null=True, blank=True)
+
     action      = models.CharField(max_length=10, choices=ACTIONS)
     type_action = models.CharField(max_length=64, blank=True, default="")
     from_wh     = models.ForeignKey(Warehouse, null=True, blank=True, on_delete=models.PROTECT, related_name="moves_from")
     to_wh       = models.ForeignKey(Warehouse, null=True, blank=True, on_delete=models.PROTECT, related_name="moves_to")
     note        = models.CharField(max_length=255, blank=True, default="")
     created_at  = models.DateTimeField(auto_now_add=True, db_index=True)
-    # ✨ THÊM MỚI:
-    tag         = models.PositiveIntegerField(default=1, db_index=True)
-    created_by = models.ForeignKey('auth.User', null=True, blank=True, on_delete=models.SET_NULL)
-    batch_id = models.CharField(max_length=32, blank=True, db_index=True)  # Nhóm transactions
-    duration_seconds = models.PositiveIntegerField(null=True, blank=True)  # Thời gian thực hiện
+
+    # ✨ Thêm sẵn các trường meta/batch
+    tag            = models.PositiveIntegerField(default=1, db_index=True)
+    created_by     = models.ForeignKey('auth.User', null=True, blank=True, on_delete=models.SET_NULL)
+    batch_id       = models.CharField(max_length=32, blank=True, db_index=True)
+    duration_seconds = models.PositiveIntegerField(null=True, blank=True)
+
     class Meta:
         ordering = ["-created_at"]
         indexes = [
@@ -140,8 +164,154 @@ class Move(models.Model):
             models.Index(fields=["tag", "created_at"]),
             models.Index(fields=["batch_id"]),
         ]
+
     def __str__(self):
-        return f"{self.action} {self.item.barcode_text}"
+        if self.item:
+            return f"{self.action} ITEM {self.item.barcode_text}"
+        return f"{self.action} BULK {self.product.code4} x{self.quantity}"
+
+    # --- Ràng buộc hợp lệ ---
+    def clean(self):
+        super().clean()
+        has_item = self.item is not None
+        has_bulk = self.product is not None or self.quantity is not None
+
+        if has_item and has_bulk:
+            raise ValidationError("Move phải là 'theo Item' HOẶC 'theo Bulk' (không được cả hai).")
+
+        if not has_item and not has_bulk:
+            raise ValidationError("Move thiếu dữ liệu: cần Item hoặc Product+Quantity.")
+
+        if not has_item and (self.product is None or not self.quantity):
+            raise ValidationError("Bulk cần đủ (product, quantity>0).")
+
+        # Kiểm tra from/to theo action
+        if self.action == "IN" and not self.to_wh:
+            raise ValidationError("IN cần to_wh (kho nhận).")
+        if self.action == "OUT" and not self.from_wh:
+            raise ValidationError("OUT cần from_wh (kho xuất).")
+
+        # Nếu theo Item, suy ra product từ item
+        if has_item:
+            if self.action == "IN" and self.to_wh is None:
+                raise ValidationError("IN item cần to_wh.")
+            if self.action == "OUT" and self.from_wh is None:
+                raise ValidationError("OUT item cần from_wh.")
+
+    # --- Áp dụng & cập nhật Inventory an toàn ---
+    def apply(self):
+        """
+        Gọi sau khi save() để cập nhật tồn kho.
+        Dùng trong transaction & select_for_update ở nơi gọi batch để tránh race.
+        """
+        if self.item:
+            product = self.item.product
+            qty = 1
+        else:
+            product = self.product
+            qty = int(self.quantity or 0)
+
+        if self.action == "IN":
+            # Bulk: tăng tồn kho to_wh
+            # Itemized: gán warehouse cho item (nếu muốn), tăng tồn kho
+            if self.item and self.to_wh:
+                self.item.warehouse = self.to_wh
+                self.item.status = "in_stock"
+                self.item.save(update_fields=["warehouse", "status"])
+            Inventory.adjust(product, self.to_wh, +qty)
+
+        elif self.action == "OUT":
+            # Bulk: trừ tồn kho from_wh
+            # Itemized: clear warehouse/item status nếu muốn
+            Inventory.adjust(product, self.from_wh, -qty)
+            if self.item and self.from_wh:
+                self.item.warehouse = None
+                self.item.status = "shipping"
+                self.item.save(update_fields=["warehouse", "status"])
+
+
+# 6) Đơn nhập/xuất để nhập tay, đọc file, hoặc API
+class StockOrder(models.Model):
+    ORDER_TYPES = (("IN", "IN"), ("OUT", "OUT"))
+    SOURCES     = (("MANUAL", "MANUAL"), ("SHEET", "SHEET"), ("API", "API"))
+
+    order_type   = models.CharField(max_length=3, choices=ORDER_TYPES)
+    source       = models.CharField(max_length=10, choices=SOURCES, default="MANUAL")
+    reference    = models.CharField(max_length=64, blank=True, default="")  # mã đơn, số chứng từ
+    note         = models.CharField(max_length=255, blank=True, default="")
+    created_by   = models.ForeignKey('auth.User', null=True, blank=True, on_delete=models.SET_NULL)
+    created_at   = models.DateTimeField(auto_now_add=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    is_confirmed = models.BooleanField(default=False)
+
+    # nơi đi/đến mặc định của cả đơn (dùng cho bulk)
+    from_wh = models.ForeignKey(Warehouse, null=True, blank=True, on_delete=models.PROTECT, related_name="orders_from")
+    to_wh   = models.ForeignKey(Warehouse, null=True, blank=True, on_delete=models.PROTECT, related_name="orders_to")
+
+    def __str__(self):
+        return f"{self.order_type}#{self.id} ({self.source})"
+
+    def confirm(self, batch_id: str = ""):
+        """
+        Xác nhận đơn: sinh Move tương ứng cho từng dòng.
+        - Nếu dòng có item_ids: tạo Move theo item (qty=1 từng item)
+        - Nếu dòng chỉ có product+quantity: tạo Move bulk
+        """
+        if self.is_confirmed:
+            return
+
+        with transaction.atomic():
+            for line in self.lines.select_for_update().all():
+                if line.item:
+                    # itemized
+                    mv = Move.objects.create(
+                        item=line.item,
+                        action=self.order_type,
+                        from_wh=self.from_wh if self.order_type == "OUT" else None,
+                        to_wh=self.to_wh   if self.order_type == "IN"  else None,
+                        type_action=self.source,
+                        note=self.note,
+                        created_by=self.created_by,
+                        batch_id=batch_id or f"ORDER-{self.id}",
+                    )
+                    mv.apply()
+                else:
+                    # bulk
+                    if not line.product or not line.quantity:
+                        raise ValidationError("Dòng đơn bulk thiếu product/quantity.")
+                    mv = Move.objects.create(
+                        product=line.product,
+                        quantity=line.quantity,
+                        action=self.order_type,
+                        from_wh=self.from_wh if self.order_type == "OUT" else None,
+                        to_wh=self.to_wh   if self.order_type == "IN"  else None,
+                        type_action=self.source,
+                        note=self.note,
+                        created_by=self.created_by,
+                        batch_id=batch_id or f"ORDER-{self.id}",
+                    )
+                    mv.apply()
+
+            self.is_confirmed = True
+            self.confirmed_at = timezone.now()
+            self.save(update_fields=["is_confirmed", "confirmed_at"])
+
+
+class StockOrderLine(models.Model):
+    order    = models.ForeignKey(StockOrder, on_delete=models.CASCADE, related_name="lines")
+    # Chọn 1 trong 2:
+    item     = models.ForeignKey(Item, null=True, blank=True, on_delete=models.PROTECT)     # cho case có barcode (qty ngầm =1)
+    product  = models.ForeignKey(Product, null=True, blank=True, on_delete=models.PROTECT)  # cho bulk
+    quantity = models.PositiveIntegerField(null=True, blank=True)                           # cho bulk
+
+    note     = models.CharField(max_length=255, blank=True, default="")
+
+    def clean(self):
+        super().clean()
+        if self.item and (self.product or self.quantity):
+            raise ValidationError("Một dòng chỉ được chọn Item hoặc Product+Quantity.")
+        if not self.item and not (self.product and self.quantity):
+            raise ValidationError("Dòng thiếu dữ liệu: cần Item hoặc Product+Quantity.")
 
 
 # (tuỳ chọn) Lưu câu query SQL cho dashboard

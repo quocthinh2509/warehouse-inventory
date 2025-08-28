@@ -193,7 +193,6 @@ thead th{
   
 </style>
 {% endblock %}
-
 {% block content %}
 <div class="dash-wrap">
   {% include "inventory/_dash_sidebar.html" %}
@@ -209,12 +208,12 @@ thead th{
             <div class="hero-stat-label">Total records</div>
           </div>
           <div class="hero-stat">
-            <div class="hero-stat-value">{{ total_in }}</div>
-            <div class="hero-stat-label">Items in</div>
+            <div class="hero-stat-value">{{ total_in_qty }}</div>
+            <div class="hero-stat-label">Qty IN</div>
           </div>
           <div class="hero-stat">
-            <div class="hero-stat-value">{{ total_out }}</div>
-            <div class="hero-stat-label">Items out</div>
+            <div class="hero-stat-value">{{ total_out_qty }}</div>
+            <div class="hero-stat-label">Qty OUT</div>
           </div>
         </div>
       </div>
@@ -263,56 +262,86 @@ thead th{
 
             <div>
               <label>Search</label>
-              <input type="search" name="q" value="{{ q }}" placeholder="Barcode, SKU, name, note…">
+              <input type="search" name="q" value="{{ q }}" placeholder="Barcode, SKU, product, batch, note…">
             </div>
 
-            <!-- 3 nút cùng hàng + cùng kích cỡ -->
             <div><button type="submit" class="btn-s">Apply</button></div>
             <div><button type="button" class="btn-s btn-secondary" onclick="resetFilters()">Reset</button></div>
             <div><button type="button" class="btn-s btn-secondary" onclick="downloadCSV()">Export CSV</button></div>
           </div>
 
-          <!-- hidden sort/export -->
           <input type="hidden" name="sort" id="sortInput" value="{{ sort }}">
           <input type="hidden" name="dir" id="dirInput" value="{{ dir }}">
           <input type="hidden" name="export" id="exportInput" value="">
         </form>
       </div>
 
-      <!-- Bảng -->
+      <!-- Bảng (HỢP NHẤT ITEM + BULK) -->
       <article class="table-card">
         <div class="table-wrap">
           <table role="grid">
             <thead>
               <tr>
                 <th class="sortable"><a href="#" onclick="return sortBy('created_at')">Timestamp {% if sort == 'created_at' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
-                <th class="sortable"><a href="#" onclick="return sortBy('barcode')">Barcode {% if sort == 'barcode' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
-                <th class="sortable"><a href="#" onclick="return sortBy('sku')">SKU {% if sort == 'sku' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
-                <th>Product</th>
+                <th class="sortable"><a href="#" onclick="return sortBy('u_kind')">Kind {% if sort == 'u_kind' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+                <th class="sortable"><a href="#" onclick="return sortBy('u_barcode')">Barcode {% if sort == 'u_barcode' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+                <th class="sortable"><a href="#" onclick="return sortBy('u_sku')">SKU {% if sort == 'u_sku' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+                <th class="sortable"><a href="#" onclick="return sortBy('u_name')">Product {% if sort == 'u_name' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+                <th class="sortable"><a href="#" onclick="return sortBy('u_qty')">Qty {% if sort == 'u_qty' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
                 <th class="sortable"><a href="#" onclick="return sortBy('action')">Action {% if sort == 'action' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
                 <th class="sortable"><a href="#" onclick="return sortBy('from_wh')">From {% if sort == 'from_wh' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
                 <th class="sortable"><a href="#" onclick="return sortBy('to_wh')">To {% if sort == 'to_wh' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
                 <th class="sortable"><a href="#" onclick="return sortBy('type_action')">Type {% if sort == 'type_action' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
                 <th class="sortable"><a href="#" onclick="return sortBy('note')">Note {% if sort == 'note' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
-                <th>Tag</th>
+                <th class="sortable"><a href="#" onclick="return sortBy('tag')">Tag {% if sort == 'tag' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
+                <th class="sortable"><a href="#" onclick="return sortBy('batch_id')">Batch {% if sort == 'batch_id' %}<span class="dir-badge">{{ dir|upper }}</span>{% endif %}</a></th>
               </tr>
             </thead>
             <tbody>
               {% for m in logs %}
-                <tr>
-                  <td>{{ m.created_at|date:"Y-m-d H:i:s" }}</td>
-                  <td><code style="background:#f3f4f6; padding:2px 6px; border-radius:4px">{{ m.item.barcode_text }}</code></td>
-                  <td>{{ m.item.product.sku }}</td>
-                  <td style="max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="{{ m.item.product.name }}">{{ m.item.product.name }}</td>
-                  <td><span class="status-badge action-{{ m.action|lower }}">{{ m.action }}</span></td>
-                  <td>{% if m.from_wh %}{{ m.from_wh.code }}{% else %}-{% endif %}</td>
-                  <td>{% if m.to_wh %}{{ m.to_wh.code }}{% else %}-{% endif %}</td>
-                  <td>{{ m.type_action|default:"-" }}</td>
-                  <td style="max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="{{ m.note }}">{{ m.note|default:"-" }}</td>
-                  <td><span style="background:#eef2ff; padding:2px 6px; border-radius:8px; font-size:11px">#{{ m.tag }}</span></td>
-                </tr>
+              <tr>
+                <td>{{ m.created_at|date:"Y-m-d H:i:s" }}</td>
+
+                <td>
+                  {% if m.item %}<span class="status-badge" style="background:#e0f2fe;color:#155e75">ITEM</span>
+                  {% else %}<span class="status-badge" style="background:#fef9c3;color:#92400e">BULK</span>{% endif %}
+                </td>
+
+                <td>
+                  {% if m.item %}
+                    <code style="background:#f3f4f6; padding:2px 6px; border-radius:4px">{{ m.item.barcode_text }}</code>
+                  {% else %}-{% endif %}
+                </td>
+
+                <td>
+                  {% if m.item %}{{ m.item.product.sku }}
+                  {% elif m.product %}{{ m.product.sku }}
+                  {% else %}-{% endif %}
+                </td>
+
+                <td style="max-width:260px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis"
+                    title="{% if m.item %}{{ m.item.product.name }}{% elif m.product %}{{ m.product.name }}{% endif %}">
+                  {% if m.item %}{{ m.item.product.name }}
+                  {% elif m.product %}{{ m.product.name }}
+                  {% else %}-{% endif %}
+                </td>
+
+                <td>
+                  {% if m.product %}{{ m.quantity }}
+                  {% elif m.item %}1
+                  {% else %}-{% endif %}
+                </td>
+
+                <td><span class="status-badge action-{{ m.action|lower }}">{{ m.action }}</span></td>
+                <td>{% if m.from_wh %}{{ m.from_wh.code }}{% else %}-{% endif %}</td>
+                <td>{% if m.to_wh %}{{ m.to_wh.code }}{% else %}-{% endif %}</td>
+                <td>{{ m.type_action|default:"-" }}</td>
+                <td style="max-width:240px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis" title="{{ m.note }}">{{ m.note|default:"-" }}</td>
+                <td><span style="background:#eef2ff; padding:2px 6px; border-radius:8px; font-size:11px">#{{ m.tag }}</span></td>
+                <td><code style="background:#f3f4f6; padding:2px 6px; border-radius:4px">{{ m.batch_id|default:"-" }}</code></td>
+              </tr>
               {% empty %}
-                <tr><td colspan="10" style="text-align:center; padding:28px; color:var(--muted)">No transactions</td></tr>
+              <tr><td colspan="13" style="text-align:center; padding:28px; color:var(--muted)">No transactions</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -322,12 +351,9 @@ thead th{
   </main>
 </div>
 
-<!-- Loading -->
-<div class="loading-overlay" id="loadingOverlay"><div class="loading-spinner"></div></div>
-
+<!-- Loading overlay + JS sorting/export giữ nguyên -->
 <script>
   function sortBy(key){
-    showLoading();
     const f=document.getElementById('filterForm');
     const s=document.getElementById('sortInput');
     const d=document.getElementById('dirInput');
@@ -335,39 +361,23 @@ thead th{
     if(curS===key){ d.value=(curD==='asc')?'desc':'asc'; } else { s.value=key; d.value='asc'; }
     f.requestSubmit(); return false;
   }
+  function downloadCSV(){ const f=document.getElementById('filterForm'); document.getElementById('exportInput').value='csv'; f.submit(); }
+  function resetFilters(){ window.location.href = "{% url 'dashboard_history' %}"; }
 
-  function downloadCSV(){
-    showLoading();
-    const f=document.getElementById('filterForm');
-    const ex=document.getElementById('exportInput');
-    ex.value='csv'; f.submit(); setTimeout(()=>{ex.value=''; hideLoading();}, 800);
-  }
-
-  function resetFilters(){
-    // chuyển về route gốc
-    window.location.href = "{% url 'dashboard_history' %}";
-  }
-
-  function showLoading(){ document.getElementById('loadingOverlay').classList.add('show'); }
-  function hideLoading(){ document.getElementById('loadingOverlay').classList.remove('show'); }
-
-  const startEl=document.getElementById('startInput');
-  const endEl=document.getElementById('endInput');
-  const dispEl=document.getElementById('rangeDisplay');
-  function setDisplay(){ const s=startEl.value, e=endEl.value; dispEl.value=(s&&e)?`${s} → ${e}`:''; }
-
+  // Date picker init (giữ nguyên)
   document.addEventListener('DOMContentLoaded', ()=>{
+    const startEl=document.getElementById('startInput');
+    const endEl=document.getElementById('endInput');
+    const dispEl=document.getElementById('rangeDisplay');
     const picker=new Litepicker({
       element:dispEl, singleMode:false, numberOfMonths:2, numberOfColumns:2,
       autoApply:true, format:'YYYY-MM-DD',
       dropdowns:{minYear:2020,maxYear:2035,months:true,years:true},
-      startDate:startEl.value||null, endDate:endEl.value||null
+      startDate:startEl.value||null, endDate=endEl.value||null
     });
-    picker.on('selected',(d1,d2)=>{ startEl.value=d1?d1.format('YYYY-MM-DD'):''; endEl.value=d2?d2.format('YYYY-MM-DD'):''; setDisplay(); });
+    picker.on('selected',(d1,d2)=>{ startEl.value=d1?d1.format('YYYY-MM-DD'):''; endEl.value=d2?d2.format('YYYY-MM-DD'):''; dispEl.value=(startEl.value&&endEl.value)?`${startEl.value} → ${endEl.value}`:''; });
     dispEl.addEventListener('focus',()=>picker.show());
-    setDisplay();
-    setTimeout(hideLoading, 300);
-    document.getElementById('filterForm').addEventListener('submit', showLoading);
+    dispEl.value=(startEl.value&&endEl.value)?`${startEl.value} → ${endEl.value}`:'';
   });
 </script>
 {% endblock %}

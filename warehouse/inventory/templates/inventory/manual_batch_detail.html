@@ -1,0 +1,70 @@
+{% extends "inventory/base.html" %}
+{% block title %}Manual IN/OUT – Batch{% endblock %}
+
+{% block extra_head %}
+<style>
+  .scan-wrap{max-width:980px;margin:24px auto}
+  .scan-hero{background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:24px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
+  .scan-hero h2{margin:0;display:flex;align-items:center;gap:12px;font-size:28px}
+  .subtabs{display:flex;gap:8px;margin:12px 0 0}
+  .subtabs a{padding:8px 16px;border:1px solid var(--border);border-radius:8px;text-decoration:none;color:var(--text);background:#fff}
+  .subtabs a.active{background:var(--primary);color:#fff;border-color:var(--primary);font-weight:600}
+  .card{margin-bottom:16px}
+  label{font-size:14px;color:var(--muted);margin-bottom:6px;display:block}
+  .actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:16px}
+  table{width:100%;border-collapse:collapse}
+  thead th{position:sticky;top:0;background:#1e293b;color:#fff;padding:10px;border-bottom:1px solid #334155;text-align:left}
+  tbody td{padding:10px;border-bottom:1px solid #263247}
+  tbody tr:nth-child(odd){background:rgba(255,255,255,.02)}
+  .muted{color:var(--muted);font-size:14px}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="scan-wrap">
+  {% include "inventory/_manual_tabs.html" %}
+
+  <article class="card">
+    <form method="get" action="{% url 'manual_batch_detail' %}">
+      <div style="display:grid;grid-template-columns:1fr 140px;gap:12px;align-items:end">
+        <div>
+          <label>Batch code</label>
+          <input name="batch" placeholder="YYYYMMDD-HHMMSS" value="{{ batch_id }}">
+        </div>
+        <div class="actions">
+          <button type="submit">Xem</button>
+          <a class="secondary" href="{% url 'dashboard_history' %}?q={{ batch_id|urlencode }}">Mở History</a>
+        </div>
+      </div>
+    </form>
+  </article>
+
+  <article class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th><th>Action</th><th>Barcode</th><th>Bulk SKU</th><th>Qty</th><th>From</th><th>To</th><th>Note</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in moves %}
+        <tr>
+          <td>{{ m.created_at|date:"Y-m-d H:i:s" }}</td>
+          <td>{{ m.action }}</td>
+          <td>{% if m.item %}{{ m.item.barcode_text }}{% endif %}</td>
+          <td>{% if m.product %}{{ m.product.sku }}{% endif %}</td>
+          <td>{% if m.product %}{{ m.quantity }}{% else %}{% if m.item %}1{% endif %}{% endif %}</td>
+          <td>{% if m.from_wh %}{{ m.from_wh.code }}{% endif %}</td>
+          <td>{% if m.to_wh %}{{ m.to_wh.code }}{% endif %}</td>
+          
+          <td>{{ m.note }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8" class="muted">Không có giao dịch.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p>Tổng giao dịch: {{ total }}</p>
+  </article>
+</div>
+{% endblock %}

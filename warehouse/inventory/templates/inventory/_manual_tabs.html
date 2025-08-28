@@ -1,0 +1,9 @@
+<div class="scan-hero">
+    <h2>🧾 Manual IN/OUT</h2>
+    <div class="subtabs">
+      <a href="{% url 'manual_start' %}" class="{% if subtab == 'manual_start' %}active{% endif %}">Start</a>
+      <a href="{% url 'manual_preview' %}" class="{% if subtab == 'manual_preview' %}active{% endif %}">Preview</a>
+      <a href="{% url 'manual_batch_detail' %}" class="{% if subtab == 'manual_batch' %}active{% endif %}">Batch</a>
+    </div>
+  </div>
+  

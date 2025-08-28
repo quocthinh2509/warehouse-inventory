@@ -5,14 +5,17 @@ import csv
 from django.conf import settings
 from django.shortcuts import render, redirect, get_object_or_404
 from django.db import transaction, connection
-from django.db.models import Q, Max, Count, Sum, F, Avg
+from django.db.models import Q, Max, Count, Sum, F, Avg, Case, When, Value, IntegerField,  CharField
 from django.core.paginator import Paginator
+from django.db.models.functions import Coalesce
 from django.contrib import messages
 from django.utils import timezone
-from django.http import Http404, HttpResponse, HttpResponseBadRequest, FileResponse
+from django.http import Http404, HttpResponse, HttpResponseBadRequest, FileResponse, JsonResponse
 from django.urls import reverse
 from urllib.parse import quote
 from django.db.models.functions import Extract, TruncHour
+from django.core.exceptions import ValidationError
+from django.views.decorators.http import require_POST, require_GET
 
 from datetime import datetime, date, timedelta
 from shutil import make_archive
@@ -202,16 +205,15 @@ def export_barcodes_csv(queryset):
 # ---- Tab 3: History (đổi tên từ dashboard cũ của bạn)
 
 def dashboard_history(request):
-    """Enhanced dashboard history with better analytics and performance"""
-    
+    """Enhanced dashboard history: show both ITEM & BULK in one table"""
     # Get filter parameters
     q = (request.GET.get("q") or "").strip()
     action = (request.GET.get("action") or "").strip().upper()
     wh_id = request.GET.get("wh") or ""
     start_s = request.GET.get("start") or ""
     end_s = request.GET.get("end") or ""
-    
-    # Sorting and pagination
+
+    # Sorting & page size
     sort = request.GET.get("sort") or "created_at"
     dir_ = (request.GET.get("dir") or "desc").lower()
     per = request.GET.get("per") or "200"
@@ -220,42 +222,41 @@ def dashboard_history(request):
     except Exception:
         per = 200
 
-    # Date parsing helper
+    # Date parse
     def parse_date(s):
-        try: 
+        try:
             return datetime.strptime(s, "%Y-%m-%d").date()
-        except Exception: 
+        except Exception:
             return None
-    
+
     start_d = parse_date(start_s)
     end_d = parse_date(end_s)
-    
-    # Quick date ranges for template
+
+    # Quick date ranges
     today = timezone.now().date()
     yesterday = today - timedelta(days=1)
     week_start = today - timedelta(days=today.weekday())
     month_start = today.replace(day=1)
 
-    # Base queryset with optimized select_related
-    qs = Move.objects.select_related(
-        "item__product", 
-        "from_wh", 
-        "to_wh"
-    ).prefetch_related("item__product")
+    # Base queryset (chú ý: có cả bulk product)
+    qs = (
+        Move.objects.select_related("item__product", "product", "from_wh", "to_wh")
+        .prefetch_related("item__product")
+    )
 
-    # Apply filters
-    if start_d: 
+    # Filters
+    if start_d:
         qs = qs.filter(created_at__date__gte=start_d)
-    if end_d:   
+    if end_d:
         qs = qs.filter(created_at__date__lte=end_d)
-    if action in {"IN", "OUT"}: 
+    if action in {"IN", "OUT"}:
         qs = qs.filter(action=action)
     if wh_id:
-        if action == "IN": 
+        if action == "IN":
             qs = qs.filter(to_wh_id=wh_id)
-        elif action == "OUT": 
+        elif action == "OUT":
             qs = qs.filter(from_wh_id=wh_id)
-        else: 
+        else:
             qs = qs.filter(Q(from_wh_id=wh_id) | Q(to_wh_id=wh_id))
     if q:
         qs = qs.filter(
@@ -263,91 +264,123 @@ def dashboard_history(request):
             Q(item__product__sku__icontains=q) |
             Q(item__product__name__icontains=q) |
             Q(item__product__code4__icontains=q) |
+            Q(product__sku__icontains=q) |           # BULK
+            Q(product__name__icontains=q) |          # BULK
+            Q(batch_id__icontains=q) |
             Q(note__icontains=q) |
             Q(type_action__icontains=q)
         )
 
-    # Handle CSV export early to avoid heavy processing
+    # CSV early exit
     if (request.GET.get("export") or "").lower() == "csv":
         return export_history_csv(qs)
 
-    # Apply sorting
+    # Annotate unified fields
+    qs = qs.annotate(
+        u_kind=Case(
+            When(item__isnull=False, then=Value("ITEM")),
+            default=Value("BULK"),
+            output_field=CharField(),
+        ),
+        u_barcode=F("item__barcode_text"),
+        u_sku=Coalesce(F("item__product__sku"), F("product__sku")),
+        u_name=Coalesce(F("item__product__name"), F("product__name")),
+        u_qty=Case(
+            When(product__isnull=False, then=F("quantity")),  # BULK
+            default=Value(1),                                 # ITEM
+            output_field=IntegerField(),
+        ),
+    )
+
+    # Sorting
     sort_map = {
         "created_at": "created_at",
-        "barcode": "item__barcode_text", 
-        "sku": "item__product__sku",
+        "u_kind": "u_kind",
+        "u_barcode": "u_barcode",
+        "u_sku": "u_sku",
+        "u_name": "u_name",
+        "u_qty": "u_qty",
         "action": "action",
         "from_wh": "from_wh__code",
-        "to_wh": "to_wh__code", 
+        "to_wh": "to_wh__code",
         "type_action": "type_action",
         "note": "note",
         "tag": "tag",
+        "batch_id": "batch_id",
+        # backward-compat keys from old template:
+        "barcode": "u_barcode",
+        "sku": "u_sku",
     }
     sort_field = sort_map.get(sort, "created_at")
-    if dir_ != "asc": 
+    if dir_ != "asc":
         sort_field = "-" + sort_field
     qs = qs.order_by(sort_field)
 
-    # Get paginated results
+    # Fetch rows
     logs = list(qs[:per])
     total_rows = qs.count()
 
-    # Calculate analytics for filtered dataset
+    # ==== Analytics (tính theo QTY) ====
     def base_filtered():
-        bq = Move.objects.all()
-        if start_d: bq = bq.filter(created_at__date__gte=start_d)
-        if end_d:   bq = bq.filter(created_at__date__lte=end_d)
-        if wh_id:   bq = bq.filter(Q(from_wh_id=wh_id) | Q(to_wh_id=wh_id))
+        bq = Move.objects.select_related("product")
+        if start_d:
+            bq = bq.filter(created_at__date__gte=start_d)
+        if end_d:
+            bq = bq.filter(created_at__date__lte=end_d)
+        if wh_id:
+            bq = bq.filter(Q(from_wh_id=wh_id) | Q(to_wh_id=wh_id))
         if q:
             bq = bq.filter(
                 Q(item__barcode_text__icontains=q) |
                 Q(item__product__sku__icontains=q) |
                 Q(item__product__name__icontains=q) |
                 Q(item__product__code4__icontains=q) |
+                Q(product__sku__icontains=q) |
+                Q(product__name__icontains=q) |
+                Q(batch_id__icontains=q) |
                 Q(note__icontains=q) |
                 Q(type_action__icontains=q)
             )
         return bq
 
-    base_qs = base_filtered()
-    
-    # Basic counts
-    total_in = base_qs.filter(action="IN").count()
-    total_out = base_qs.filter(action="OUT").count()
-    
-    # Enhanced analytics
+    base_qs = base_filtered().annotate(
+        u_qty=Case(
+            When(product__isnull=False, then=F("quantity")),
+            default=Value(1),
+            output_field=IntegerField(),
+        )
+    )
+    total_in_qty = base_qs.filter(action="IN").aggregate(s=Sum("u_qty"))["s"] or 0
+    total_out_qty = base_qs.filter(action="OUT").aggregate(s=Sum("u_qty"))["s"] or 0
+
     analytics = calculate_advanced_analytics(base_qs, start_d, end_d)
-    
-    # Get warehouses for dropdown
+
     warehouses = Warehouse.objects.all().order_by("code")
 
     context = {
         "active_tab": "history",
-        "logs": logs, 
+        "logs": logs,
         "total_rows": total_rows,
-        "total_in": total_in, 
-        "total_out": total_out,
-        "q": q, 
-        "action": action, 
+        "total_in_qty": total_in_qty,
+        "total_out_qty": total_out_qty,
+        "q": q,
+        "action": action,
         "wh_id": str(wh_id),
-        "start": start_s, 
+        "start": start_s,
         "end": end_s,
         "sort": request.GET.get("sort") or "created_at",
-        "dir": dir_, 
+        "dir": dir_,
         "per": per,
         "warehouses": warehouses,
         "per_options": [100, 200, 500, 1000, 2000],
-        
         # Quick date filters
         "today": today.strftime("%Y-%m-%d"),
         "yesterday": yesterday.strftime("%Y-%m-%d"),
         "week_start": week_start.strftime("%Y-%m-%d"),
         "month_start": month_start.strftime("%Y-%m-%d"),
-        
-        # Enhanced analytics
+        # analytics (giữ nguyên keys cũ nếu bạn đang dùng)
         **analytics,
     }
-    
     return render(request, "inventory/dashboard_history.html", context)
 
 
@@ -448,31 +481,39 @@ def export_history_csv(queryset):
     
     # Enhanced CSV headers
     headers = [
-        'timestamp', 'date', 'time', 'barcode', 'sku', 'product_name', 
-        'product_code4', 'action', 'from_warehouse', 'to_warehouse', 
-        'transaction_type', 'note', 'tag', 'day_of_week', 'hour'
+        'timestamp','date','time',
+        'barcode','sku','product_name','product_code4',
+        'bulk_sku','bulk_qty',               # ✨ thêm
+        'action','from_warehouse','to_warehouse',
+        'transaction_type','note','tag','batch_id','day_of_week','hour'
     ]
     writer.writerow(headers)
     
     # Stream the data to handle large datasets efficiently
     for move in queryset.iterator(chunk_size=1000):
         local_time = timezone.localtime(move.created_at)
+        item = getattr(move, "item", None)
+        prod = item.product if item else None
+        bulk_prod = getattr(move, "product", None)
         writer.writerow([
             local_time.strftime('%Y-%m-%d %H:%M:%S'),
             local_time.strftime('%Y-%m-%d'),
             local_time.strftime('%H:%M:%S'),
-            move.item.barcode_text,
-            move.item.product.sku,
-            move.item.product.name,
-            move.item.product.code4,
+            item.barcode_text if item else '',
+            prod.sku if prod else '',
+            prod.name if prod else '',
+            prod.code4 if prod else '',
+            bulk_prod.sku if bulk_prod else '',              # ✨
+            move.quantity if bulk_prod else '',              # ✨
             move.action,
             move.from_wh.code if move.from_wh else '',
             move.to_wh.code if move.to_wh else '',
             move.type_action or '',
             move.note or '',
             move.tag,
-            local_time.strftime('%A'),  # Day of week
-            local_time.hour,  # Hour for analysis
+            move.batch_id or '',                             # ✨
+            local_time.strftime('%A'),
+            local_time.hour,
         ])
     
     return response
@@ -543,7 +584,265 @@ def _save_queue(request, q):
     request.session["gen_queue"] = q
     request.session.modified = True
 
+# ==== Manual batch in session ====
 
+def _manual_batch(request):
+    """
+    Cấu trúc:
+    {
+      "active": True, "action": "OUT"|"IN", "wh_id": 1,
+      "allow_consume_itemized": False,
+      "lines": [{"sku": "...", "qty": 5}, ...],
+      "batch_code": "20250828-103000"
+    }
+    """
+    return request.session.setdefault("manual_batch", {"active": False, "lines": []})
+
+def _save_manual_batch(request, st):
+    request.session["manual_batch"] = st
+    request.session.modified = True
+
+
+def get_itemized_count(product: Product, warehouse: Warehouse) -> int:
+    # số Item có barcode đang in_stock ở kho
+    return Item.objects.filter(product=product, warehouse=warehouse, status="in_stock").count()
+
+def get_pools_locked(product: Product, warehouse: Warehouse):
+    """
+    Lấy tồn kho + tách pool bulk vs itemized. Gọi trong transaction.
+    bulk_pool = Inventory.qty - itemized_count
+    """
+    inv = Inventory.objects.select_for_update().get(product=product, warehouse=warehouse)
+    itemized_cnt = get_itemized_count(product, warehouse)
+    bulk_pool = inv.qty - itemized_cnt
+    return inv, itemized_cnt, bulk_pool
+
+def preview_bulk_out(product: Product, warehouse: Warehouse, qty: int):
+    """
+    Dùng cho màn 'Preview': trả về (bulk_pool, itemized_cnt, lack, will_consume_itemized)
+    """
+    inv = Inventory.objects.filter(product=product, warehouse=warehouse).first()
+    total = inv.qty if inv else 0
+    itemized_cnt = get_itemized_count(product, warehouse)
+    bulk_pool = max(0, total - itemized_cnt)
+    lack = max(0, qty - bulk_pool)
+    return {
+        "total": total,
+        "itemized_cnt": itemized_cnt,
+        "bulk_pool": bulk_pool,
+        "lack": lack,                      # thiếu so với bulk
+        "will_consume_itemized": lack > 0, # nếu cho phép “bốc item”
+    }
+
+def allocate_bulk_out(product: Product, from_wh: Warehouse, qty: int, allow_consume_itemized=False):
+    """
+    Finalize: quyết định trừ từ bulk bao nhiêu và cần 'bốc' bao nhiêu Item.
+    Trả về (bulk_used, picked_items:list[Item]).
+    """
+    with transaction.atomic():
+        inv, itemized_cnt, bulk_pool = get_pools_locked(product, from_wh)
+        if qty <= bulk_pool:
+            return qty, []
+
+        if not allow_consume_itemized:
+            raise ValidationError(
+                f"Không đủ hàng bulk để OUT {qty}. Còn bulk={bulk_pool}, itemized={itemized_cnt}."
+            )
+
+        need_items = qty - bulk_pool
+        qs = (Item.objects
+              .select_for_update()
+              .filter(product=product, warehouse=from_wh, status="in_stock")
+              .order_by("created_at", "id"))  # FIFO
+        picked = list(qs[:need_items])
+        if len(picked) < need_items:
+            raise ValidationError(
+                f"Không đủ hàng (kể cả item) để OUT {qty}. bulk={bulk_pool}, itemized={itemized_cnt}."
+            )
+        return bulk_pool, picked
+
+# ==== Views cho Manual IN/OUT ====
+
+def manual_start(request):
+    if request.method == "POST":
+        action = (request.POST.get("action") or "OUT").upper()
+        wh = Warehouse.objects.filter(id=request.POST.get("wh")).first()
+        if action not in ("IN","OUT") or not wh:
+            messages.error(request, "Chọn action (IN/OUT) và kho hợp lệ.")
+            return redirect("manual_start")
+
+        allow = bool(request.POST.get("allow_consume_itemized"))
+        st = {
+            "active": True,
+            "action": action,
+            "wh_id": wh.id,
+            "allow_consume_itemized": allow,
+            "lines": [],
+            "batch_code": timezone.localtime().strftime("%Y%m%d-%H%M%S"),
+        }
+        _save_manual_batch(request, st)
+        return redirect("manual_preview")
+
+    # GET: render form start
+    return render(request, "inventory/manual_start.html", {
+        "warehouses": Warehouse.objects.all().order_by("code"),
+        "subtab":"manual_start",
+    })
+
+
+
+@require_POST
+def manual_add_line(request):
+    st = _manual_batch(request)
+    if not st.get("active"):
+        messages.warning(request, "Chưa bắt đầu đơn thủ công.")
+        return redirect("manual_start")
+
+    sku = (request.POST.get("sku") or "").strip()
+    qty = int(request.POST.get("qty") or 0)
+    if not sku or qty <= 0:
+        messages.error(request, "SKU/Qty không hợp lệ.")
+        return redirect("manual_preview")
+
+    product = Product.objects.filter(sku=sku).first()
+    if not product:
+        messages.error(request, f"Không tìm thấy SKU {sku}.")
+        return redirect("manual_preview")
+
+    st["lines"].append({"sku": sku, "qty": qty})
+    _save_manual_batch(request, st)
+    messages.success(request, f"Đã thêm {qty} x {sku}.")
+    return redirect("manual_preview")
+
+def manual_remove_line(request, idx: int):
+    st = _manual_batch(request)
+    if 0 <= idx < len(st.get("lines", [])):
+        st["lines"].pop(idx)
+        _save_manual_batch(request, st)
+    return redirect("manual_preview")
+
+def manual_clear(request):
+    st = _manual_batch(request)
+    st["lines"] = []
+    _save_manual_batch(request, st)
+    messages.info(request, "Đã xoá toàn bộ dòng trong batch.")
+    return redirect("manual_preview")
+
+def manual_preview(request):
+    st = _manual_batch(request)
+    if not st.get("active"):
+        return redirect("manual_start")
+
+    wh = Warehouse.objects.filter(id=st["wh_id"]).first()
+    action = st["action"]
+    allow = st.get("allow_consume_itemized", False)
+
+    # ▼ lấy list product cho dropdown
+    products = Product.objects.only("sku", "name").order_by("sku")
+
+    # Tính preview & cảnh báo
+    preview_rows = []
+    total_warn = 0
+    for i, ln in enumerate(st.get("lines", [])):
+        product = Product.objects.filter(sku=ln["sku"]).first()
+        qty = int(ln["qty"])
+        row = {"idx": i, "sku": ln["sku"], "qty": qty, "valid": bool(product)}
+        if product and action == "OUT":
+            pv = preview_bulk_out(product, wh, qty)
+            row.update(pv)
+            row["status"] = "OK" if pv["lack"] == 0 else ("THIẾU (sẽ bốc item)" if allow else "THIẾU (sẽ bị chặn)")
+            if pv["lack"] > 0 and not allow:
+                total_warn += 1
+        preview_rows.append(row)
+
+    return render(request, "inventory/manual_preview.html", {
+        "batch": st,
+        "warehouse": wh,
+        "preview_rows": preview_rows,
+        "action": action,
+        "allow_consume_itemized": allow,
+        "has_blocking": (total_warn > 0) if action == "OUT" else False,
+        "subtab": "manual_preview",
+        "products": products,             # ◀️ thêm vào context
+    })
+
+@require_POST
+@transaction.atomic
+def manual_finalize(request):
+    st = _manual_batch(request)
+    if not st.get("active"):
+        messages.warning(request, "Chưa bắt đầu đơn thủ công.")
+        return redirect("manual_start")
+
+    wh = Warehouse.objects.select_for_update().filter(id=st["wh_id"]).first()
+    action = st["action"]
+    allow = st.get("allow_consume_itemized", False)
+    batch_id = st.get("batch_code") or timezone.localtime().strftime("%Y%m%d-%H%M%S")
+
+    created_moves = 0
+    # Duyệt từng dòng
+    for ln in st.get("lines", []):
+        product = Product.objects.filter(sku=ln["sku"]).first()
+        if not product:
+            continue
+        qty = int(ln["qty"])
+
+        if action == "IN":
+            # IN bulk: tăng tồn kho, log Move bulk
+            mv = Move.objects.create(
+                product=product, quantity=qty, action="IN", to_wh=wh,
+                type_action="MANUAL", note="IN (manual bulk)", batch_id=batch_id
+            )
+            # cập nhật tồn (dùng helper có sẵn của bạn)
+            adjust_inventory(product, wh, +qty)
+            created_moves += 1
+
+        else:  # OUT
+            # Quyết định dùng bulk &/hoặc bốc item
+            bulk_used, picked_items = allocate_bulk_out(product, wh, qty, allow_consume_itemized=allow)
+
+            if bulk_used > 0:
+                mvb = Move.objects.create(
+                    product=product, quantity=bulk_used, action="OUT", from_wh=wh,
+                    type_action="MANUAL", note="OUT (manual bulk)", batch_id=batch_id
+                )
+                adjust_inventory(product, wh, -bulk_used)
+                created_moves += 1
+
+            for it in picked_items:
+                mvi = Move.objects.create(
+                    item=it, action="OUT", from_wh=wh,
+                    type_action="MANUAL", note="OUT (manual picked)", batch_id=batch_id
+                )
+                # cập nhật tồn + trạng thái item (theo scan_move bạn đang làm)
+                adjust_inventory(it.product, wh, -1)
+                it.warehouse = None
+                it.status = "shipped"
+                it.save(update_fields=["warehouse","status"])
+                created_moves += 1
+
+    # Reset batch + hiển thị link truy xuất
+    request.session["manual_batch"] = {"active": False, "lines": []}
+    request.session.modified = True
+    messages.success(request, f"Đã ghi sổ batch {batch_id} với {created_moves} giao dịch.")
+    return redirect(f"{reverse('manual_batch_detail')}?batch={batch_id}")
+
+def manual_batch_detail(request):
+    batch_id = (request.GET.get("batch") or "").strip()
+    if not batch_id:
+        return render(request, "inventory/manual_batch_detail.html", {"batch_id": "", "moves": []})
+
+    moves = (Move.objects
+             .select_related("item__product","from_wh","to_wh","product")
+             .filter(batch_id=batch_id)
+             .order_by("created_at","id"))
+
+    return render(request, "inventory/manual_batch_detail.html", {
+        "batch_id": batch_id,
+        "moves": moves,
+        "total": moves.count(),
+        "subtab": "manual_batch",  
+    })
 # ---------- Generate labels ----------
 
 @transaction.atomic
@@ -889,11 +1188,12 @@ def product_list(request):
     qs = Product.objects.all()
     if q:
         qs = qs.filter(
-            models.Q(sku__icontains=q) |
-            models.Q(name__icontains=q) |
-            models.Q(code4__icontains=q)
+            Q(sku__icontains=q) |
+            Q(name__icontains=q) |
+            Q(code4__icontains=q)
         )
     return render(request, "inventory/product_list.html", {"products": qs, "q": q})
+
 
 def product_create(request):
     if request.method == "POST":

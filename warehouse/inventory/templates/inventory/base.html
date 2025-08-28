@@ -6,7 +6,6 @@
   <title>{% block title %}Warehouse{% endblock %}</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
   <style>
-    
     :root {
       --background: #FFFFFF;
       --card-bg: #F5F5F5;
@@ -18,97 +17,35 @@
       --error: #EF4444;
       --font-family: 'Inter', system-ui, -apple-system, sans-serif;
     }
-    
-    body {
-      font-family: var(--font-family);
-      background: var(--background);
-      color: var(--text);
-      margin: 0;
-      padding: 0;
-      line-height: 1.5;
-    }
-    
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 24px;
-    }
-    
+    body { font-family: var(--font-family); background: var(--background); color: var(--text); margin: 0; padding: 0; line-height: 1.5; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
     button, a[role="button"] {
-      padding: 10px 16px;
-      border-radius: 8px;
-      border: none;
-      background: var(--primary);
-      color: #FFFFFF;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.2s ease, transform 0.2s ease;
+      padding: 10px 16px; border-radius: 8px; border: none; background: var(--primary); color: #FFFFFF;
+      font-weight: 600; cursor: pointer; transition: background .2s ease, transform .2s ease;
     }
-    
-    button:hover, a[role="button"]:hover {
-      background: #2563EB;
-      transform: translateY(-2px);
-    }
-    
-    button.secondary, a[role="button"].secondary {
-      background: #E5E7EB;
-      color: var(--text);
-    }
-    
-    button.secondary:hover, a[role="button"].secondary:hover {
-      background: #D1D5DB;
-    }
-    
+    button:hover, a[role="button"]:hover { background: #2563EB; transform: translateY(-2px); }
+    button.secondary, a[role="button"].secondary { background: #E5E7EB; color: var(--text); }
+    button.secondary:hover, a[role="button"].secondary:hover { background: #D1D5DB; }
     input, select, textarea {
-      padding: 10px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: #FFFFFF;
-      color: var(--text);
-      font-size: 14px;
-      width: 100%;
-      box-sizing: border-box;
+      padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: #FFFFFF; color: var(--text);
+      font-size: 14px; width: 100%; box-sizing: border-box;
     }
-    
-    input:focus, select:focus, textarea:focus {
-      outline: none;
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-    }
-    
+    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(59,130,246,.1); }
     .card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-      transition: transform 0.2s ease;
+      background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.05); transition: transform .2s ease;
     }
-    
-    .card:hover {
-      transform: translateY(-2px);
-    }
-    
-    h2 {
-      font-size: 28px;
-      font-weight: 700;
-      margin: 0 0 16px;
-      color: var(--text);
-    }
-    
-    h3 {
-      font-size: 18px;
-      font-weight: 600;
-      margin: 0 0 12px;
-    }   
+    .card:hover { transform: translateY(-2px); }
+    h2 { font-size: 28px; font-weight: 700; margin: 0 0 16px; color: var(--text); }
+    h3 { font-size: 18px; font-weight: 600; margin: 0 0 12px; }
     .dash-wrap{display:grid;grid-template-columns:200px 1fr;min-height:calc(100vh - 64px)}
     .side{background:var(--card-bg);border-right:1px solid var(--border);padding:12px 10px}
     .side-head{display:flex;gap:8px;align-items:center;margin-bottom:10px;font-size:16px}
     .side .logo{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:6px;background:#6d28d9;color:#fff}
     .side ul{list-style:none;margin:0;padding:4px}
     .side li{margin:2px 0}
-    .side a{display:flex;gap:8px;align-items:center;text-decoration:none;padding:8px 10px;font-size: 14px;border-radius:10px;color:var(--text)}
-    .side li.active a{background:#5b21b6;color:#fff;font-weight: 600;}
+    .side a{display:flex;gap:8px;align-items:center;text-decoration:none;padding:8px 10px;font-size:14px;border-radius:10px;color:var(--text)}
+    .side li.active a{background:#5b21b6;color:#fff;font-weight:600;}
     .side a:hover{background:#ede9fe}
     .side-foot{margin-top:auto;font-size:11px;color:var(--muted);padding:6px 8px}
     .dash-main{padding:20px}
@@ -127,23 +64,34 @@
 </head>
 <body>
   <nav class="container-fluid">
-    <ul><li><strong></strong></li></ul>
     <ul>
-
-      {# Scan & Check #}
+      <li><strong>Warehouse</strong></li>
+    </ul>
+    <ul>
+      {# === Manual (NEW) === #}
       <li>
-        <a href="{% url 'scan_scan' %}" class="{% if request.path|slice:':13' == '/scan-check/' %}contrast{% endif %}">Barcode</a>
+        <a href="{% url 'manual_start' %}"
+           class="{% if request.path|slice:':8' == '/manual/' %}contrast{% endif %}">Manual</a>
       </li>
 
-      {# Dashboard #}
+      {# === Barcode / Scan & Check === #}
       <li>
-        <a href="{% url 'dashboard' %}">Dashboard</a>
+        <a href="{% url 'scan_scan' %}"
+           class="{% if request.path|slice:':12' == '/scan-check/' %}contrast{% endif %}">Barcode</a>
       </li>
 
-      {# Config hub (active nếu /config/ hoặc /queries/ hoặc /products/ hoặc /admin/) #}
+      {# === Dashboard (trỏ về warehouse) === #}
+      <li>
+        <a href="{% url 'dashboard_warehouse' %}"
+           class="{% if request.path|slice:':11' == '/dashboard/' %}contrast{% endif %}">Dashboard</a>
+      </li>
+
+      {# === Config hub (active nếu /config/ hoặc /queries/ hoặc /products/ hoặc /admin/) === #}
       <li>
         <a href="{% url 'config_index' %}"
-           class="{% if request.path|slice:':8' == '/config/' or request.path|slice:':9' == '/queries/' or request.path|slice:':10' == '/products/' or request.path|slice:':7' == '/admin/' %}active{% endif %}">Config</a>
+           class="{% if request.path|slice:':8' == '/config/' or request.path|slice:':9' == '/queries/' or request.path|slice:':10' == '/products/' or request.path|slice:':7' == '/admin/' %}contrast{% endif %}">
+          Config
+        </a>
       </li>
     </ul>
   </nav>
@@ -154,7 +102,6 @@
         <article class="message-{{ m.tags }}">{{ m }}</article>
       {% endfor %}
     {% endif %}
-
     {% block content %}{% endblock %}
   </main>
 </body>

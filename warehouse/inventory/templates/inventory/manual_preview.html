@@ -1,0 +1,94 @@
+{% extends "inventory/base.html" %}
+{% block title %}Manual IN/OUT – Preview{% endblock %}
+
+{% block extra_head %}
+<style>
+  .scan-wrap{max-width:980px;margin:24px auto}
+  .scan-hero{background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:24px;box-shadow:0 2px 8px rgba(0,0,0,.05)}
+  .scan-hero h2{margin:0;display:flex;align-items:center;gap:12px;font-size:28px}
+  .subtabs{display:flex;gap:8px;margin:12px 0 0}
+  .subtabs a{padding:8px 16px;border:1px solid var(--border);border-radius:8px;text-decoration:none;color:var(--text);background:#fff}
+  .subtabs a.active{background:var(--primary);color:#fff;border-color:var(--primary);font-weight:600}
+  .card{margin-bottom:16px}
+  label{font-size:14px;color:var(--muted);margin-bottom:6px;display:block}
+  .actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:16px}
+  table{width:100%;border-collapse:collapse}
+  thead th{position:sticky;top:0;background:#1e293b;color:#fff;padding:10px;border-bottom:1px solid #334155;text-align:left}
+  tbody td{padding:10px;border-bottom:1px solid #263247}
+  tbody tr:nth-child(odd){background:rgba(255,255,255,.02)}
+  .warning{color:#f43f5e;font-weight:600}
+  .muted{color:var(--muted);font-size:14px}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="scan-wrap">
+  {% include "inventory/_manual_tabs.html" %}
+
+  <article class="card">
+    <h3>Batch: {{ batch.batch_code }} — {{ action }} @ {{ warehouse.code }}</h3>
+    <form method="post" action="{% url 'manual_add_line' %}">{% csrf_token %}
+      <div style="display:grid;grid-template-columns:1fr 160px 120px;gap:12px;align-items:end">
+        <div>
+          <label>SKU</label>
+          <select name="sku" id="skuSelect" required>
+            <option value="">-- Chọn SKU --</option>
+            {% for p in products %}
+              <option value="{{ p.sku }}">{{ p.sku }} — {{ p.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label>QTY</label>
+          <input name="qty" type="number" min="1" value="1" required>
+        </div>
+        <div class="actions">
+          <button type="submit">Thêm dòng</button>
+          <a class="secondary" href="{% url 'manual_clear' %}">Xoá tất cả</a>
+        </div>
+      </div>
+    </form>
+  </article>
+
+  <article class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th><th>SKU</th><th>QTY</th>
+          {% if action == "OUT" %}
+            <th>Bulk pool</th><th>Itemized</th><th>Thiếu</th><th>Trạng thái</th>
+          {% endif %}
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in preview_rows %}
+        <tr>
+          <td>{{ forloop.counter }}</td>
+          <td>{{ r.sku }}</td>
+          <td>{{ r.qty }}</td>
+          {% if action == "OUT" %}
+            <td>{{ r.bulk_pool|default:"-" }}</td>
+            <td>{{ r.itemized_cnt|default:"-" }}</td>
+            <td class="{% if r.lack and not allow_consume_itemized %}warning{% endif %}">{{ r.lack|default:"-" }}</td>
+            <td>{{ r.status|default:"" }}</td>
+          {% endif %}
+          <td><a href="{% url 'manual_remove_line' r.idx %}">Xoá</a></td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8" class="muted">Chưa có dòng nào.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="actions" style="margin-top:12px">
+      <form method="post" action="{% url 'manual_finalize' %}">{% csrf_token %}
+        <button type="submit" {% if action == "OUT" and has_blocking %}disabled{% endif %}>Finalize batch</button>
+      </form>
+      {% if action == "OUT" and has_blocking %}
+        <span class="warning">Có dòng thiếu bulk và KHÔNG cho phép bốc item → không thể finalize.</span>
+      {% endif %}
+    </div>
+  </article>
+</div>
+{% endblock %}

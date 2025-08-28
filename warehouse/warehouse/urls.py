@@ -29,6 +29,18 @@ urlpatterns = [
     # Vào web -> Generate
     path("", views.dashboard_redirect, name="dashboard"),
 
+# Đối với quy trình nhập tay, google sheet , API
+    path("manual/start/", views.manual_start, name="manual_start"),
+    path("manual/add/", views.manual_add_line, name="manual_add_line"),
+    path("manual/clear/", views.manual_clear, name="manual_clear"),
+    path("manual/remove/<int:idx>/", views.manual_remove_line, name="manual_remove_line"),
+    path("manual/preview/", views.manual_preview, name="manual_preview"),
+    path("manual/finalize/", views.manual_finalize, name="manual_finalize"),
+    path("manual/batch/", views.manual_batch_detail, name="manual_batch_detail"),   
+
+
+
+# Đối với items có barcode 
     # Generate & giỏ in
     path("scan-check/generate/", views.generate_labels, name="generate_labels"),
     path("scan-check/generate/clear/", views.clear_queue, name="clear_queue"),
@@ -37,7 +49,7 @@ urlpatterns = [
     # Tải ZIP
     path("labels/download/<slug:batch>/", views.download_batch, name="download_batch"),
 
-    # Scan & Check
+    # Scan & Check 
     path("scan-check/scan/", views.scan_move, name="scan_scan"),
     path("scan-check/scan/start/", views.scan_start, name="scan_start"),
     path("scan-check/scan/stop/", views.scan_stop, name="scan_stop"),
