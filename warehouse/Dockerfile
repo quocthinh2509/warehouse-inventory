@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --upgrade pip && \
     if [ -f /tmp/requirements.txt ]; then pip install -r /tmp/requirements.txt; fi && \
-    pip install gunicorn whitenoise
+    pip install gunicorn whitenoise && pip install djangorestframework django-cors-headers djangorestframework-simplejwt
 
 # Copy toàn bộ source
 COPY . /app
@@ -25,6 +25,9 @@ RUN if [ "$COLLECT_STATIC" = "1" ]; then \
       python manage.py collectstatic --noinput || true ; \
     fi
 
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 # Tạo user thường
 RUN groupadd -r app && useradd -r -g app app && chown -R app:app /app
 USER app
@@ -34,7 +37,7 @@ EXPOSE 8000
 ENV DJANGO_DEBUG=False \
     PORT=8000
 
-COPY docker/entrypoint.sh /entrypoint.sh
+
 ENTRYPOINT ["/entrypoint.sh"]
 
 # CHÍNH XÁC CHO DỰ ÁN CỦA BẠN:

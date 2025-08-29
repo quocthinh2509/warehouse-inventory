@@ -26,6 +26,10 @@ if [ $(docker ps -aq -f name=warehouse) ]; then
     docker rm warehouse
 fi
 
+cd /var/www/warehouse/warehouse
+
+docker build -t vision2509/warehouse:latest .
+
 # Chạy container mới với auto restart
 echo "Chạy container mới..."
 docker run -d \
@@ -33,6 +37,6 @@ docker run -d \
   --name warehouse \
   --user root \
   --restart unless-stopped \
-  -v /var/www/warehouse/warehouse:/app \
+  -v /var/www/warehouse/warehouse/:/app \
   vision2509/warehouse:latest
 ENDSSH
