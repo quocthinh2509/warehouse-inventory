@@ -17,15 +17,26 @@ Including another URLconf
 # warehouse/urls.py
 # warehouse/urls.py
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import RedirectView
 from inventory import views
+from rest_framework.routers import DefaultRouter
+from inventory.views_api import (
+    ProductViewSet, WarehouseViewSet, ItemViewSet, InventoryViewSet, MoveViewSet
+)
+
+router = DefaultRouter()
+router.register(r'products', ProductViewSet)
+router.register(r'warehouses', WarehouseViewSet)
+router.register(r'items', ItemViewSet)
+router.register(r'inventories', InventoryViewSet, basename="inventory")
+router.register(r'moves', MoveViewSet, basename="move")
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-
+    path("api/", include(router.urls)),
     # Vào web -> Generate
     path("", views.dashboard_redirect, name="dashboard"),
 
