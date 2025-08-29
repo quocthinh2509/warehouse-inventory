@@ -88,6 +88,23 @@ class ProductForm(forms.ModelForm):
         model = Product
         fields = ["sku","name"]
 
+
+class ManualUploadForm(forms.Form):
+    file = forms.FileField(
+        label="Chọn file (CSV/XLSX)",
+        help_text="Cột tối thiểu: SKU, Qty. Hỗ trợ: Name, Note, ImportDate (dd/mm/yyyy)."
+    )
+    replace = forms.BooleanField(
+        required=False,
+        initial=False,
+        label="Thay thế toàn bộ dòng hiện tại (không thì sẽ cộng thêm)"
+    )
+    merge_duplicate = forms.BooleanField(
+        required=False,
+        initial=True,
+        label="Gộp SKU trùng (cộng dồn Qty)"
+    )
+
 # Query Panel
 class SQLQueryForm(forms.Form):
     name = forms.CharField(max_length=128, required=False)

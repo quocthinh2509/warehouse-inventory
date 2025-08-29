@@ -1,6 +1,6 @@
 from pathlib import Path
 import re, io, zipfile
-import csv
+import csv, unicodedata
 
 from django.conf import settings
 from django.shortcuts import render, redirect, get_object_or_404
@@ -24,6 +24,11 @@ from .forms import GenerateForm, ScanMoveForm, ProductForm, SQLQueryForm
 from .utils import make_payload, save_code128_png
 from io import StringIO
 MEDIA_ROOT = Path(settings.MEDIA_ROOT)
+
+try:
+    from openpyxl import load_workbook   # pip install openpyxl
+except Exception:
+    load_workbook = None
 
 # ---------- Trang chính & Dashboard ----------
 def index(request):
@@ -1425,3 +1430,167 @@ def query_panel(request):
     }
     return render(request, "inventory/query_panel.html", ctx)
 
+# ---------- Helpers cho upload ----------
+HEADER_ALIASES = {
+    "sku": {"sku", "mã", "ma", "ma sp", "ma_san_pham", "ma san pham", "product_sku"},
+    "name": {"name", "ten", "tên", "product_name"},
+    "qty": {"qty", "so luong", "số lượng", "quantity", "q"},
+    "note": {"note", "ghi chu", "ghi chú", "ghichu"},
+    "import_date": {"importdate", "import_date", "ngay nhap", "ngày nhập", "date"},
+}
+
+def _normalize(s: str) -> str:
+    s = (s or "").strip()
+    s = unicodedata.normalize("NFD", s).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "", s.lower())
+
+def _map_headers(headers):
+    """Map tiêu đề cột sang keys chuẩn: sku/name/qty/note/import_date"""
+    norm = [_normalize(h) for h in headers]
+    mapping = {}
+    for key, aliases in HEADER_ALIASES.items():
+        for i, nh in enumerate(norm):
+            if nh in {_normalize(a) for a in aliases}:
+                mapping[key] = i
+                break
+    # sku & qty là bắt buộc
+    if "sku" not in mapping or "qty" not in mapping:
+        raise ValueError("Thiếu cột bắt buộc: SKU và Qty.")
+    return mapping
+
+def _parse_csv(fileobj) -> list[dict]:
+    raw = fileobj.read()
+    if isinstance(raw, bytes):
+        # auto detect delimiter + BOM
+        text = raw.decode("utf-8-sig", errors="replace")
+    else:
+        text = raw
+    sample = text[:1024]
+    try:
+        dialect = csv.Sniffer().sniff(sample)
+    except Exception:
+        dialect = csv.excel
+    reader = csv.reader(io.StringIO(text), dialect)
+    rows = list(reader)
+    if not rows:
+        return []
+    mapping = _map_headers(rows[0])
+    out = []
+    for r in rows[1:]:
+        if not any(r):  # dòng trống
+            continue
+        get = lambda key: (r[mapping[key]].strip() if key in mapping and mapping[key] < len(r) else "")
+        sku  = get("sku")
+        qtys = get("qty")
+        if not sku or not qtys:
+            continue
+        try:
+            qty = int(str(qtys).replace(",", "").strip())
+        except Exception:
+            raise ValueError(f"Qty không hợp lệ ở SKU {sku}: {qtys}")
+        row = {"sku": sku, "qty": qty}
+        for opt in ("name", "note", "import_date"):
+            v = get(opt)
+            if v: row[opt] = v
+        out.append(row)
+    return out
+
+def _parse_xlsx(fileobj) -> list[dict]:
+    if not load_workbook:
+        raise RuntimeError("Thiếu thư viện openpyxl. Chạy: pip install openpyxl")
+    wb = load_workbook(filename=io.BytesIO(fileobj.read()), read_only=True, data_only=True)
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return []
+    headers = [str(x or "").strip() for x in rows[0]]
+    mapping = _map_headers(headers)
+    out = []
+    for r in rows[1:]:
+        get = lambda key: (str(r[mapping[key]]).strip() if key in mapping and mapping[key] < len(r) else "")
+        sku  = get("sku")
+        qtys = get("qty")
+        if not sku or not qtys:
+            continue
+        try:
+            qty = int(str(qtys).replace(",", "").strip())
+        except Exception:
+            raise ValueError(f"Qty không hợp lệ ở SKU {sku}: {qtys}")
+        row = {"sku": sku, "qty": qty}
+        for opt in ("name", "note", "import_date"):
+            v = get(opt)
+            if v: row[opt] = v
+        out.append(row)
+    return out
+
+def _parse_manual_file(dj_file) -> list[dict]:
+    name = (dj_file.name or "").lower()
+    if name.endswith(".csv"):
+        return _parse_csv(dj_file.file)
+    if name.endswith(".xlsx"):
+        return _parse_xlsx(dj_file.file)
+    # fallback: thử CSV
+    return _parse_csv(dj_file.file)
+
+def _merge_lines(lines: list[dict]) -> list[dict]:
+    """Gộp SKU trùng (cộng qty, giữ name/note/import_date đầu tiên gặp)."""
+    bucket = {}
+    for r in lines:
+        sku = r["sku"]
+        if sku not in bucket:
+            bucket[sku] = r.copy()
+        else:
+            bucket[sku]["qty"] += int(r.get("qty", 0) or 0)
+            # không đè các field mô tả nếu đã có
+            for k in ("name","note","import_date"):
+                if k in r and r[k] and not bucket[sku].get(k):
+                    bucket[sku][k] = r[k]
+    return list(bucket.values())
+
+# ---------- Endpoints upload ----------
+@require_POST
+def manual_upload(request):
+    """Upload CSV/XLSX để đổ dòng vào batch manual."""
+    from .forms import ManualUploadForm
+    st = _manual_batch(request)
+    if not st.get("active"):
+        messages.warning(request, "Chưa bắt đầu đơn thủ công.")
+        return redirect("manual_start")
+
+    form = ManualUploadForm(request.POST, request.FILES)
+    if not form.is_valid():
+        for e in form.errors.values(): messages.error(request, e)
+        return redirect("manual_preview")
+
+    try:
+        rows = _parse_manual_file(form.cleaned_data["file"])
+        if form.cleaned_data.get("merge_duplicate"):
+            rows = _merge_lines(rows)
+        # Chuẩn hoá: chỉ đẩy sku/qty vào batch (name/note/import_date giữ lại để hiển thị nếu muốn)
+        new_lines = [{"sku": r["sku"], "qty": int(r["qty"])} for r in rows]
+
+        if form.cleaned_data.get("replace"):
+            st["lines"] = new_lines
+        else:
+            st["lines"].extend(new_lines)
+
+        _save_manual_batch(request, st)
+
+        total = sum(int(x["qty"]) for x in new_lines)
+        messages.success(request, f"Đã nạp {len(new_lines)} dòng (tổng qty: {total}).")
+    except Exception as e:
+        messages.error(request, f"Lỗi đọc file: {e}")
+
+    return redirect("manual_preview")
+
+def manual_sample_csv(request):
+    """Tải file mẫu CSV."""
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["SKU","Name","Qty","Note","ImportDate"])
+    w.writerow(["RBLFEGPWHT01","FEG PLUS WHITE",10,"nhap lo 2025-08-29","29/08/2025"])
+    w.writerow(["FEGPLSEYECRM","FEGPLUS EYE CREAM",5,"don test","29/08/2025"])
+    data = buf.getvalue().encode("utf-8-sig")
+    resp = HttpResponse(data, content_type="text/csv; charset=utf-8")
+    resp["Content-Disposition"] = 'attachment; filename="manual_batch_sample.csv"'
+    return resp
