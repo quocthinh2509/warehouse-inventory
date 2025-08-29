@@ -39,8 +39,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'corsheaders',          # nếu cần gọi từ front-end khác domain
-    'api',
     'inventory',
+    'api',
 ]
 
 MIDDLEWARE = [
