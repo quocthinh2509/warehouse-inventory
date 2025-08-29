@@ -22,86 +22,60 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import RedirectView
 from inventory import views
-from inventory import views_api_duplicate as api_views
-from rest_framework.routers import DefaultRouter
-
-from inventory.views_api import (
-    ProductViewSet, WarehouseViewSet, ItemViewSet,
-    InventoryViewSet, MoveViewSet,
-    StockOrderViewSet
-)
-
-router = DefaultRouter()
-router.register(r'products', ProductViewSet)
-router.register(r'warehouses', WarehouseViewSet)
-router.register(r'items', ItemViewSet)
-router.register(r'inventories', InventoryViewSet, basename="inventory")
-router.register(r'moves', MoveViewSet, basename="move")
-router.register(r'orders', StockOrderViewSet, basename="order")
-
-# Duplicate router for /api/api/ endpoints
-router_v2 = DefaultRouter()
-router_v2.register(r'products', ProductViewSet)
-router_v2.register(r'warehouses', WarehouseViewSet)
-router_v2.register(r'items', ItemViewSet)
-router_v2.register(r'inventories', InventoryViewSet, basename="inventory")
-router_v2.register(r'moves', MoveViewSet, basename="move")
-router_v2.register(r'orders', StockOrderViewSet, basename="order")
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("api/", include(router.urls)),
-    path("api/api/", include(router_v2.urls)),
+    path("api/", include("inventory.api_urls")),
     
-    # ========== API Duplicate Routes ==========
-    # Main & Dashboard API endpoints
-    path("api/index/", api_views.api_index, name="api_index"),
-    path("api/config/", api_views.api_config_index, name="api_config_index"),
-    path("api/dashboard/", api_views.api_dashboard_redirect, name="api_dashboard_redirect"),
-    path("api/dashboard/warehouse/", api_views.api_dashboard_warehouse, name="api_dashboard_warehouse"),
-    path("api/dashboard/barcodes/", api_views.api_dashboard_barcodes, name="api_dashboard_barcodes"),
-    path("api/dashboard/history/", api_views.api_dashboard_history, name="api_dashboard_history"),
+    # # ========== API Duplicate Routes ==========
+    # # Main & Dashboard API endpoints
+    # path("api/index/", api_views.api_index, name="api_index"),
+    # path("api/config/", api_views.api_config_index, name="api_config_index"),
+    # path("api/dashboard/", api_views.api_dashboard_redirect, name="api_dashboard_redirect"),
+    # path("api/dashboard/warehouse/", api_views.api_dashboard_warehouse, name="api_dashboard_warehouse"),
+    # path("api/dashboard/barcodes/", api_views.api_dashboard_barcodes, name="api_dashboard_barcodes"),
+    # path("api/dashboard/history/", api_views.api_dashboard_history, name="api_dashboard_history"),
     
-    # Manual Process API endpoints
-    path("api/manual/start/", api_views.api_manual_start, name="api_manual_start"),
-    path("api/manual/add/", api_views.api_manual_add_line, name="api_manual_add_line"),
-    path("api/manual/clear/", api_views.api_manual_clear, name="api_manual_clear"),
-    path("api/manual/remove/<int:idx>/", api_views.api_manual_remove_line, name="api_manual_remove_line"),
-    path("api/manual/preview/", api_views.api_manual_preview, name="api_manual_preview"),
-    path("api/manual/finalize/", api_views.api_manual_finalize, name="api_manual_finalize"),
-    path("api/manual/batch/", api_views.api_manual_batch_detail, name="api_manual_batch_detail"),
-    path("api/manual/upload/", api_views.api_manual_upload, name="api_manual_upload"),
-    path("api/manual/sample.csv", api_views.api_manual_sample_csv, name="api_manual_sample_csv"),
+    # # Manual Process API endpoints
+    # path("api/manual/start/", api_views.api_manual_start, name="api_manual_start"),
+    # path("api/manual/add/", api_views.api_manual_add_line, name="api_manual_add_line"),
+    # path("api/manual/clear/", api_views.api_manual_clear, name="api_manual_clear"),
+    # path("api/manual/remove/<int:idx>/", api_views.api_manual_remove_line, name="api_manual_remove_line"),
+    # path("api/manual/preview/", api_views.api_manual_preview, name="api_manual_preview"),
+    # path("api/manual/finalize/", api_views.api_manual_finalize, name="api_manual_finalize"),
+    # path("api/manual/batch/", api_views.api_manual_batch_detail, name="api_manual_batch_detail"),
+    # path("api/manual/upload/", api_views.api_manual_upload, name="api_manual_upload"),
+    # path("api/manual/sample.csv", api_views.api_manual_sample_csv, name="api_manual_sample_csv"),
     
-    # Generate & Scan API endpoints
-    path("api/scan-check/generate/", api_views.api_generate_labels, name="api_generate_labels"),
-    path("api/scan-check/generate/clear/", api_views.api_clear_queue, name="api_clear_queue"),
-    path("api/scan-check/generate/remove/<int:idx>/", api_views.api_remove_queue_line, name="api_remove_queue_line"),
-    path("api/scan-check/generate/finalize/", api_views.api_finalize_queue, name="api_finalize_queue"),
-    path("api/labels/download/<slug:batch>/", api_views.api_download_batch, name="api_download_batch"),
-    path("api/scan-check/scan/", api_views.api_scan_move, name="api_scan_move"),
-    path("api/scan-check/scan/start/", api_views.api_scan_start, name="api_scan_start"),
-    path("api/scan-check/scan/stop/", api_views.api_scan_stop, name="api_scan_stop"),
-    path("api/scan-check/check/", api_views.api_barcode_lookup, name="api_scan_check"),
+    # # Generate & Scan API endpoints
+    # path("api/scan-check/generate/", api_views.api_generate_labels, name="api_generate_labels"),
+    # path("api/scan-check/generate/clear/", api_views.api_clear_queue, name="api_clear_queue"),
+    # path("api/scan-check/generate/remove/<int:idx>/", api_views.api_remove_queue_line, name="api_remove_queue_line"),
+    # path("api/scan-check/generate/finalize/", api_views.api_finalize_queue, name="api_finalize_queue"),
+    # path("api/labels/download/<slug:batch>/", api_views.api_download_batch, name="api_download_batch"),
+    # path("api/scan-check/scan/", api_views.api_scan_move, name="api_scan_move"),
+    # path("api/scan-check/scan/start/", api_views.api_scan_start, name="api_scan_start"),
+    # path("api/scan-check/scan/stop/", api_views.api_scan_stop, name="api_scan_stop"),
+    # path("api/scan-check/check/", api_views.api_barcode_lookup, name="api_scan_check"),
     
-    # Analysis & Lookup API endpoints
-    path("api/inventory/", api_views.api_inventory_view, name="api_inventory"),
-    path("api/transactions/", api_views.api_transactions, name="api_transactions"),
-    path("api/barcode-lookup/", api_views.api_barcode_lookup, name="api_barcode_lookup"),
+    # # Analysis & Lookup API endpoints
+    # path("api/inventory/", api_views.api_inventory_view, name="api_inventory"),
+    # path("api/transactions/", api_views.api_transactions, name="api_transactions"),
+    # path("api/barcode-lookup/", api_views.api_barcode_lookup, name="api_barcode_lookup"),
     
-    # Product CRUD API endpoints
-    path("api/products/", api_views.api_product_list, name="api_product_list"),
-    path("api/products/new/", api_views.api_product_create, name="api_product_create"),
-    path("api/products/<int:pk>/edit/", api_views.api_product_update, name="api_product_update"),
-    path("api/products/<int:pk>/delete/", api_views.api_product_delete, name="api_product_delete"),
+    # # Product CRUD API endpoints
+    # path("api/products/", api_views.api_product_list, name="api_product_list"),
+    # path("api/products/new/", api_views.api_product_create, name="api_product_create"),
+    # path("api/products/<int:pk>/edit/", api_views.api_product_update, name="api_product_update"),
+    # path("api/products/<int:pk>/delete/", api_views.api_product_delete, name="api_product_delete"),
     
     # Query Panel API endpoints
-    path("api/queries/", api_views.api_query_panel, name="api_query_panel"),
-    path("api/queries/<int:pk>/", api_views.api_query_panel, name="api_query_panel_edit"),
+    # path("api/queries/", api_views.api_query_panel, name="api_query_panel"),
+    # path("api/queries/<int:pk>/", api_views.api_query_panel, name="api_query_panel_edit"),
     
-    # Export API endpoints
-    path("api/export/barcodes/csv/", api_views.api_export_barcodes_csv, name="api_export_barcodes_csv"),
-    path("api/export/history/csv/", api_views.api_export_history_csv, name="api_export_history_csv"),
+    # # Export API endpoints
+    # path("api/export/barcodes/csv/", api_views.api_export_barcodes_csv, name="api_export_barcodes_csv"),
+    # path("api/export/history/csv/", api_views.api_export_history_csv, name="api_export_history_csv"),
     
     # ========== End API Duplicate Routes ==========
     

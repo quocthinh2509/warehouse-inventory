@@ -1,7 +1,7 @@
 # inventory/api_views.py
 from datetime import datetime, timedelta
 from django.utils import timezone
-from django.db.models import Q, Sum, Max, Count, F, IntegerField, CharField
+from django.db.models import Q, Sum, Max, Count, F, IntegerField, CharField, Case, When, Value
 from django.db import transaction
 from django.http import FileResponse, HttpResponse, HttpResponseBadRequest
 from django.conf import settings
