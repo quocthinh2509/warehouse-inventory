@@ -4,7 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .api_views import (
     WarehouseViewSet, ProductViewSet, ItemViewSet,
     InventoryView, HistoryView, HistoryStatsView, HistoryUpdatesView,
-    ManualBatchView, ScanView, GenerateLabelsView
+    ManualBatchView, ScanView, GenerateLabelsView, BarcodeCheckView,
 )
 
 router = DefaultRouter()
@@ -39,4 +39,9 @@ urlpatterns = [
 
     # Generate labels (one-shot, không dùng session)
     path("generate/labels", GenerateLabelsView.as_view(), name="api_generate_labels"),
+
+    # 🔎 Barcode lookup (ITEM info + move history)
+    path("barcode/check", BarcodeCheckView.as_view(), name="api_barcode_check"),
+    # (tuỳ chọn) path dùng URL param:
+    path("barcode/<str:barcode>", BarcodeCheckView.as_view(), name="api_barcode_check_slug"),
 ]
