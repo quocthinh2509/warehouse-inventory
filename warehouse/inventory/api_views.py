@@ -41,7 +41,7 @@ class WarehouseViewSet(viewsets.ReadOnlyModelViewSet):
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all().order_by("sku")
     serializer_class = ProductSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [AllowAny]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -224,7 +224,7 @@ class ManualBatchView(APIView):
     - POST /api/manual/finalize
     - POST /api/manual/upload (multipart: file; flags: merge_duplicate, replace)
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def post(self, request, *args, **kwargs):
@@ -364,7 +364,7 @@ class ScanView(APIView):
     - POST /api/scan/scan {barcode}
     - GET  /api/scan/state
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [AllowAny]
 
     def post(self, request):
         path = request.path
@@ -393,10 +393,16 @@ class ScanView(APIView):
 
         if path.endswith("/scan"):
             st=_scan_state(request)
-            if not st.get("active"): return Response({"detail":"Chưa bắt đầu."}, status=400)
+            # if not st.get("active"): return Response({"detail":"Chưa bắt đầu."}, status=400)
             code=(request.data.get("barcode") or "").strip()
             if not code: return Response({"detail":"Thiếu barcode."}, status=400)
-            action=st["action"]; type_action=st.get("type_action") or ""; tag=int(st.get("tag") or 1)
+            action = (st.get("action") if st else request.data.get("action"))
+            type_action = st.get("type_action") if st and st.get("type_action") else request.data.get("type_action")
+            if not type_action:
+                return Response({"detail": "Thiếu type_action."}, status=400)
+            tag_value = st.get("tag") if st and st.get("tag") is not None else request.data.get("tag")
+            tag = int(tag_value) if tag_value is not None else 1
+            wh_id = (st.get("wh_id") if st else request.data.get("wh_id"))
             wh = Warehouse.objects.filter(id=st.get("wh_id")).first()
             try:
                 item = Item.objects.select_for_update().select_related("product","warehouse").get(barcode_text=code)
@@ -438,7 +444,7 @@ class GenerateLabelsView(APIView):
     }
     -> tạo items + zip trả về file
     """
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [AllowAny]
     def post(self, request):
         lines = request.data.get("lines") or []
         if not isinstance(lines, list) or not lines:
@@ -476,3 +482,70 @@ class GenerateLabelsView(APIView):
                         f"Batch: {batch_code}\nGenerated: {timezone.localtime():%Y-%m-%d %H:%M:%S}\nFiles: {total_created}\n")
 
         return FileResponse(open(zip_file, "rb"), as_attachment=True, filename=f"{batch_code}.zip")
+
+
+# ---------- Barcode Check (REST) ----------
+class BarcodeCheckView(APIView):
+    permission_classes = [AllowAny]
+
+    def _item_payload(self, item):
+        return {
+            "id": item.id,
+            "barcode": item.barcode_text,
+            "status": item.status,
+            "import_date": item.import_date.isoformat() if item.import_date else None,
+            "created_at": item.created_at.isoformat() if item.created_at else None,
+            "product": {
+                "id": item.product.id if item.product else None,
+                "sku": item.product.sku if item.product else None,
+                "name": item.product.name if item.product else None,
+                "code4": item.product.code4 if item.product else None,
+            } if item.product else None,
+            "warehouse": {
+                "id": item.warehouse.id,
+                "code": item.warehouse.code,
+                "name": getattr(item.warehouse, "name", None),
+            } if item.warehouse else None,
+        }
+
+    def _move_payload(self, mv):
+        return {
+            "id": mv.id,
+            "action": mv.action,
+            "type_action": mv.type_action,
+            "from_wh": mv.from_wh.code if mv.from_wh else None,
+            "to_wh": mv.to_wh.code if mv.to_wh else None,
+            "tag": mv.tag,
+            "note": mv.note,
+            "created_at": mv.created_at.isoformat() if mv.created_at else None,
+        }
+
+    def _find_barcode(self, request):
+        # Accept from query (?barcode=) or JSON/form body {barcode:}
+        code = (request.query_params.get("barcode")
+                or request.data.get("barcode")
+                or request.data.get("code")
+                or "").strip()
+        return code
+
+    def get(self, request):
+        code = self._find_barcode(request)
+        if not code:
+            return Response({"detail": "Thiếu barcode."}, status=400)
+        try:
+            item = Item.objects.select_related("product", "warehouse").get(barcode_text=code)
+        except Item.DoesNotExist:
+            return Response({"detail": f"Không tìm thấy {code}"}, status=404)
+
+        moves = (
+            item.moves.select_related("from_wh", "to_wh")
+                .order_by("-created_at")
+        )
+        return Response({
+            "item": self._item_payload(item),
+            "moves": [self._move_payload(m) for m in moves]
+        })
+
+    def post(self, request):
+        # Same behavior as GET but read barcode from body
+        return self.get(request)

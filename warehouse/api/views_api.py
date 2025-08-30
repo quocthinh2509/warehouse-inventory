@@ -12,8 +12,8 @@ from .serializers import (
     MoveSerializer, MoveCreateSerializer,
 )
 
-class DefaultPerms(permissions.IsAuthenticatedOrReadOnly):
-    pass
+# class DefaultPerms(permissions.IsAuthenticatedOrReadOnly):
+#     pass
 
 
 # ===== Catalog =====

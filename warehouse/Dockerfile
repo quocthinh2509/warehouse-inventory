@@ -15,6 +15,7 @@ COPY requirements.txt /tmp/requirements.txt
 RUN pip install --upgrade pip && \
     if [ -f /tmp/requirements.txt ]; then pip install -r /tmp/requirements.txt; fi && \
     pip install gunicorn whitenoise && pip install djangorestframework django-cors-headers djangorestframework-simplejwt
+    # chuyen  het sang requirement.txt
 
 # Copy toàn bộ source
 COPY . /app
