@@ -1,5 +1,6 @@
 # inventory/serializers.py
 from rest_framework import serializers
+from django.db.models import Sum
 from .models import Product, Warehouse, Item, Inventory, Move
 
 class WarehouseSerializer(serializers.ModelSerializer):
@@ -8,9 +9,14 @@ class WarehouseSerializer(serializers.ModelSerializer):
         fields = ["id", "code", "name"]
 
 class ProductSerializer(serializers.ModelSerializer):
+    quantity = serializers.SerializerMethodField()
     class Meta:
         model = Product
-        fields = ["id", "sku", "name", "code4"]
+        fields = ["id", "sku", "name", "code4", "quantity"]
+
+    def get_quantity(self, obj):
+        total = Inventory.objects.filter(product=obj).aggregate(t=Sum("qty")).get("t")
+        return total or 0
 
 class ItemSerializer(serializers.ModelSerializer):
     product = ProductSerializer(read_only=True)

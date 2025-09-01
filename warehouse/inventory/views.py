@@ -1152,12 +1152,32 @@ def scan_move(request):
     })
 # ---------- Phân tích ----------
 def inventory_view(request):
+    # Lấy toàn bộ dữ liệu
     data = (
         Inventory.objects.select_related("product", "warehouse")
         .values("warehouse__code", "product__sku", "product__name", "qty")
         .order_by("warehouse__code", "product__sku")
     )
-    return render(request, "inventory/inventory.html", {"inv": data})
+
+    # Lấy số trang hiện tại từ query string (?page=2)
+    page_number = request.GET.get("page", 1)
+
+    # Khởi tạo paginator, mỗi trang 20 bản ghi (tuỳ chỉnh)
+    paginator = Paginator(data, 10)
+
+    # Lấy page object
+    page_obj = paginator.get_page(page_number)
+
+    # Render ra template
+    return render(
+        request,
+        "inventory/inventory.html",
+        {
+            "page_obj": page_obj,   # object phân trang
+            "inv": page_obj.object_list,  # dữ liệu của trang hiện tại
+            "paginator": paginator, # thông tin tổng số trang
+        },
+    )
 
 
 def transactions(request):
@@ -1197,8 +1217,29 @@ def product_list(request):
             Q(name__icontains=q) |
             Q(code4__icontains=q)
         )
-    return render(request, "inventory/product_list.html", {"products": qs, "q": q})
 
+    # Pagination
+    page_number = request.GET.get("page", 1)   # default = 1
+    paginator = Paginator(qs, 10)              # 10 sản phẩm mỗi trang
+    page_obj = paginator.get_page(page_number)
+
+    # Count tổng số sản phẩm (theo filter hiện tại)
+    total_products = qs.count()
+
+    # Sum quantity (giả sử Product có field quantity)
+    total_quantity = qs.aggregate(total_qty=Sum("quantity"))["total_qty"] or 0
+
+    return render(
+        request,
+        "inventory/product_list.html",
+        {
+            "products": page_obj,        # page_obj có .object_list, .has_next, .has_previous, .paginator.num_pages
+            "q": q,
+            "total_products": total_products,
+            "total_quantity": total_quantity,
+            "page_obj": page_obj,
+        },
+    )
 
 def product_create(request):
     if request.method == "POST":

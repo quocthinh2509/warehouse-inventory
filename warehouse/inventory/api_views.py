@@ -55,6 +55,7 @@ class ItemViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ItemSerializer
     permission_classes = [AllowAny]
 
+
     def get_queryset(self):
         qs = super().get_queryset()
         q = self.request.query_params.get("q","").strip()
@@ -86,32 +87,104 @@ class ItemViewSet(viewsets.ReadOnlyModelViewSet):
                 pass
         return qs
 
+    def list(self, request, *args, **kwargs):
+        qs = self.filter_queryset(self.get_queryset())
+
+        # ======= Summary counts =======
+        today = timezone.now().date()
+
+        page = int(request.query_params.get("page", 1))
+        page_size = int(request.query_params.get("page_size", 10))
+        total_records = qs.count()
+        total_pages = (total_records + page_size - 1) // page_size
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated_qs = qs[start:end]
+
+        serializer = self.get_serializer(paginated_qs, many=True)
+
+
+        summary = {
+            "total_barcodes": qs.count(),  # tổng barcode
+            "in_warehouse": qs.filter(warehouse__isnull=False).count(),  # trong kho (có warehouse)
+            "out": qs.filter(status="out").count(),  # đã xuất (status = out)
+            "created_today": qs.filter(created_at__date=today).count(),  # tạo hôm nay
+            "total_skus": qs.values("product__sku").distinct().count(),  # tổng SKU khác nhau
+            "warehouses_with_items": qs.exclude(warehouse__isnull=True).values("warehouse_id").distinct().count(),  # số kho có hàng
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_pages": total_pages,
+                "total_records": total_records
+            }
+        }
+
+        # ======= Pagination + serializer =======
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response({
+                "results": serializer.data,
+                "summary": summary
+            })
+
+        serializer = self.get_serializer(qs, many=True)
+        return Response({
+            "results": serializer.data,
+            "summary": summary
+        })
+
     @action(detail=False, methods=["get"])
     def export_csv(self, request):
         qs = self.get_queryset()
         # trả file CSV stream y hệt dashboard_barcodes
         return export_barcodes_csv(qs)
 
+
 class InventoryView(APIView):
     permission_classes = [AllowAny]
-
     def get(self, request):
         wh = request.GET.get("wh") or ""
         q = (request.GET.get("q") or "").strip()
 
-        inv_qs = Inventory.objects.select_related("warehouse","product")
+        page = int(request.GET.get("page", 1))   # mặc định trang 1
+        page_size = int(request.GET.get("page_size", 10))  # mặc định 10
+
+        inv_qs = Inventory.objects.select_related("warehouse", "product")
+
         if wh:
             inv_qs = inv_qs.filter(warehouse_id=wh)
+
         if q:
-            inv_qs = inv_qs.filter(Q(product__sku__icontains=q)|Q(product__name__icontains=q))
+            inv_qs = inv_qs.filter(
+                Q(product__sku__icontains=q) |
+                Q(product__name__icontains=q)
+            )
 
-        rows = inv_qs.values("warehouse__code","product__sku","product__name").annotate(qty=Sum("qty")).order_by("warehouse__code","product__sku")
+        rows = (
+            inv_qs.values("warehouse__code", "product__sku", "product__name")
+            .annotate(qty=Sum("qty"))
+            .order_by("warehouse__code", "product__sku")
+        )
+
+        total_records = rows.count()
+        total_skus = inv_qs.values("product__sku").distinct().count()
+        total_qty = sum(r["qty"] or 0 for r in rows)
+
+        # pagination slice
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated_rows = rows[start:end]
+
         return Response({
-            "results": list(rows),
-            "total_skus": inv_qs.values("product__sku").distinct().count(),
-            "total_qty": sum(r["qty"] or 0 for r in rows),
+            "results": list(paginated_rows),
+            "total_records": total_records,
+            "total_skus": total_skus,
+            "total_qty": total_qty,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total_records + page_size - 1) // page_size,  # làm tròn lên
         })
-
 # ---------- History (ITEM + BULK) ----------
 class HistoryView(APIView):
     permission_classes = [AllowAny]
@@ -167,17 +240,48 @@ class HistoryView(APIView):
 
         # annotate unified fields
         qs = qs.annotate(
-            u_kind = (Case(When(item__isnull=False, then=Value("ITEM")), default=Value("BULK"), output_field=CharField())),
-            u_barcode = F("item__barcode_text"),
-            u_sku = (F("item__product__sku") if F("item__id") else F("product__sku")),
+            u_kind=Case(
+                When(item__isnull=False, then=Value("ITEM")),
+                default=Value("BULK"),
+                output_field=CharField(),
+            ),
+            u_barcode=F("item__barcode_text"),
+            u_sku=Case(
+                When(item__id__isnull=False, then=F("item__product__sku")),
+                default=F("product__sku"),
+                output_field=CharField(),
+            ),
         )
-        # simple list, paging client-side (hoặc bạn thêm Pagination DRF nếu muốn)
+
+        # ===== Summary counts =====
+        summary = qs.aggregate(
+            total_records=Count("id"),
+            qty_in=Sum(
+                Case(
+                    When(action="IN", item__isnull=False, then=Value(1)),
+                    When(action="IN", item__isnull=True, then=F("quantity")),
+                    output_field=IntegerField(),
+                )
+            ),
+            qty_out=Sum(
+                Case(
+                    When(action="OUT", item__isnull=False, then=Value(1)),
+                    When(action="OUT", item__isnull=True, then=F("quantity")),
+                    output_field=IntegerField(),
+                )
+            ),
+        )
+
+        # simple list, paging client-side
         data = MoveSerializer(qs.order_by("-created_at")[:1000], many=True).data
+
         return Response({
             "count": qs.count(),
+            "total_records": summary["total_records"] or 0,
+            "qty_in": summary["qty_in"] or 0,
+            "qty_out": summary["qty_out"] or 0,
             "results": data
         })
-
 # ---------- Real-time stats ----------
 class HistoryStatsView(APIView):
     permission_classes = [AllowAny]
