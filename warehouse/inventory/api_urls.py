@@ -5,6 +5,7 @@ from .api_views import (
     WarehouseViewSet, ProductViewSet, ItemViewSet,
     InventoryView, HistoryView, HistoryStatsView, HistoryUpdatesView,
     ManualBatchView, ScanView, GenerateLabelsView, BarcodeCheckView,
+    BulkOutBySkuView, BulkImportOrdersView,
 )
 
 router = DefaultRouter()
@@ -22,6 +23,11 @@ urlpatterns = [
     path("history/", HistoryView.as_view(), name="api_history"),
     path("history/stats/", HistoryStatsView.as_view(), name="api_history_stats"),
     path("history/updates/", HistoryUpdatesView.as_view(), name="api_history_updates"),
+
+    # Bulk OUT by SKU (API)
+    path("bulk/out-by-sku", BulkOutBySkuView.as_view(), name="api_bulk_out_by_sku"),
+    # Bulk import multiple orders
+    path("bulk/import-orders", BulkImportOrdersView.as_view(), name="api_bulk_import_orders"),
 
     # Manual batch (session)
     path("manual/start", ManualBatchView.as_view(), name="api_manual_start"),

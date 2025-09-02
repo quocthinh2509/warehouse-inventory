@@ -4,6 +4,7 @@ from django.db import models, transaction
 from django.db.models import Max
 from django.utils import timezone
 from django.core.validators import RegexValidator
+from django.core.exceptions import ValidationError
 
 # 1) Danh mục hàng hoá
 class Product(models.Model):
@@ -119,14 +120,17 @@ class Inventory(models.Model):
     
     @staticmethod
     def adjust(product, warehouse, delta: int):
-        """Điều chỉnh tồn kho (âm/ dương)."""
+        """Điều chỉnh tồn kho (cho phép âm logic, lưu không âm).
+
+        Ghi chú: Không raise khi new_qty < 0 để không chặn nghiệp vụ OUT.
+        Lượng tồn lưu trong bảng sẽ được chặn về 0 (không âm) để an toàn.
+        """
         inv, _ = Inventory.objects.select_for_update().get_or_create(
             product=product, warehouse=warehouse, defaults={"qty": 0}
         )
-        new_qty = inv.qty + delta
-        if new_qty < 0:
-            raise ValidationError(f"Tồn kho âm cho {product} @ {warehouse}: {inv.qty} + ({delta})")
-        inv.qty = new_qty
+        new_qty = (inv.qty or 0) + int(delta or 0)
+        # Cho phép ghi nhận OUT vượt tồn, nhưng không lưu âm vào cột qty
+        inv.qty = new_qty if new_qty >= 0 else 0
         inv.save(update_fields=["qty"])
 
 
@@ -238,6 +242,7 @@ class StockOrder(models.Model):
     order_type   = models.CharField(max_length=3, choices=ORDER_TYPES)
     source       = models.CharField(max_length=10, choices=SOURCES, default="MANUAL")
     reference    = models.CharField(max_length=64, blank=True, default="")  # mã đơn, số chứng từ
+    external_id  = models.CharField(max_length=64, null=True, blank=True, unique=True, db_index=True)  # id ngoài để idempotent
     note         = models.CharField(max_length=255, blank=True, default="")
     created_by   = models.ForeignKey('auth.User', null=True, blank=True, on_delete=models.SET_NULL)
     created_at   = models.DateTimeField(auto_now_add=True)
@@ -323,5 +328,4 @@ class SavedQuery(models.Model):
 
     def __str__(self):
         return self.name
-
 

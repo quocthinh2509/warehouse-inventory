@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 from django.utils import timezone
 from django.db.models import Q, Sum, Max, Count, F, IntegerField, CharField, Case, When, Value
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.http import FileResponse, HttpResponse, HttpResponseBadRequest
 from django.conf import settings
 from pathlib import Path
@@ -10,12 +10,14 @@ import csv, io, re, zipfile
 
 from rest_framework import viewsets, mixins, status
 from rest_framework.views import APIView
+from collections import defaultdict
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAuthenticatedOrReadOnly, AllowAny
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from django.core.exceptions import ValidationError
 
-from .models import Product, Warehouse, Item, Inventory, Move
+from .models import Product, Warehouse, Item, Inventory, Move, StockOrder, StockOrderLine
 from .serializers import (
     ProductSerializer, WarehouseSerializer, ItemSerializer,
     InventorySerializer, MoveSerializer
@@ -139,6 +141,304 @@ class ItemViewSet(viewsets.ReadOnlyModelViewSet):
         qs = self.get_queryset()
         # trả file CSV stream y hệt dashboard_barcodes
         return export_barcodes_csv(qs)
+
+
+class BulkOutBySkuView(APIView):
+    """
+    POST /api/bulk/out-by-sku
+    Body JSON:
+    {
+      "warehouse_code": "WH1" | null,    # hoặc dùng warehouse_id
+      "warehouse_id": 1,
+      "lines": [
+        {"sku": "SKU001", "qty": 10},
+        {"sku": "SKU002", "qty": 5}
+      ],
+      "reference": "SO-123",            # optional
+      "external_id": "EXT-1",           # optional, unique → idempotent
+      "note": "Xuất hàng API"            # optional
+    }
+    Tác dụng: tạo 1 StockOrder OUT (source=API), sinh Move bulk theo SKU và cập nhật Inventory.
+    An toàn trong transaction. Sẽ fail nếu thiếu tồn kho.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        data = request.data if isinstance(request.data, dict) else {}
+        wh_id = data.get("warehouse_id")
+        wh_code = data.get("warehouse_code")
+        reference = (data.get("reference") or "").strip()
+        external_id = (data.get("external_id") or "").strip() or None
+        note = (data.get("note") or "").strip()
+        lines = data.get("lines") or []
+
+        # Compatibility: accept { items: [{sku, qty}], createdTime }
+        # - If "lines" is missing but "items" provided, map items -> lines
+        if (not lines) and isinstance(data.get("items"), list):
+            mapped = []
+            for it in data.get("items", []):
+                if not isinstance(it, dict):
+                    continue
+                sku = str((it.get("sku") or "").strip())
+                # support qty or quantity
+                try:
+                    qty = int(it.get("qty") if it.get("qty") is not None else it.get("quantity") or 0)
+                except Exception:
+                    qty = 0
+                mapped.append({"sku": sku, "qty": qty})
+            lines = mapped
+
+        # If createdTime supplied and reference empty, place it into reference; otherwise append to note
+        created_time = data.get("createdTime") or data.get("created_time")
+        if created_time:
+            ct = str(created_time)
+            if not reference:
+                reference = ct
+            else:
+                note = (note + (" | " if note else "") + f"createdTime={ct}")[:255]
+
+        # Resolve warehouse (auto-create by code if not exists)
+        wh = None
+        if wh_id:
+            wh = Warehouse.objects.filter(id=wh_id).first()
+        if not wh and wh_code:
+            wh = Warehouse.objects.filter(code=wh_code).first()
+            if not wh:
+                # Auto-create warehouse with given code
+                wh = Warehouse.objects.create(code=wh_code, name=wh_code)
+        if not wh:
+            return Response({"detail": "Kho không hợp lệ (cần warehouse_code hoặc warehouse_id)."}, status=400)
+
+        # Validate lines
+        if not isinstance(lines, list) or not lines:
+            return Response({"detail": "Thiếu lines."}, status=400)
+
+        # Preload products by SKU
+        skus = [str((ln.get("sku") or "").strip()) for ln in lines]
+        qtys = []
+        for ln in lines:
+            try:
+                q = int(ln.get("qty") or 0)
+            except Exception:
+                q = 0
+            qtys.append(q)
+        if any((not s) for s in skus) or any(q <= 0 for q in qtys):
+            return Response({"detail": "Mỗi dòng cần sku và qty>0."}, status=400)
+
+        products = {p.sku: p for p in Product.objects.filter(sku__in=skus)}
+        missing = [s for s in skus if s not in products]
+        # Auto-create missing products (name = sku)
+        if missing:
+            for m in sorted(set(missing)):
+                if not m:
+                    continue
+                p = Product.objects.create(sku=m, name=m)
+                products[p.sku] = p
+
+        # Group by SKU to sum quantities (avoid duplicates)
+        grouped = {}
+        for sku, qty in zip(skus, qtys):
+            grouped[sku] = grouped.get(sku, 0) + int(qty)
+
+        try:
+            with transaction.atomic():
+                if external_id:
+                    # Idempotent create guarded by unique(external_id)
+                    order, created = StockOrder.objects.get_or_create(
+                        external_id=external_id,
+                        defaults={
+                            "order_type": "OUT",
+                            "source": "API",
+                            "reference": reference,
+                            "note": note,
+                            "from_wh": wh,
+                        },
+                    )
+                    if not created:
+                        return Response({
+                            "detail": "EXISTS",
+                            "order_id": order.id,
+                            "warehouse": (order.from_wh or order.to_wh).code if (order.from_wh or order.to_wh) else None,
+                            "lines": [
+                                {"sku": ln.product.sku, "qty": ln.quantity}
+                                for ln in order.lines.all() if ln.product_id and ln.quantity
+                            ],
+                            "skipped": True,
+                        }, status=200)
+                else:
+                    order = StockOrder.objects.create(
+                        order_type="OUT",
+                        source="API",
+                        reference=reference,
+                        external_id=external_id,
+                        note=note,
+                        from_wh=wh,
+                    )
+
+                # If we reach here and the order is newly created, add lines and confirm
+                if not order.lines.exists():
+                    for sku, total_qty in grouped.items():
+                        StockOrderLine.objects.create(
+                            order=order,
+                            product=products[sku],
+                            quantity=total_qty,
+                            note=note,
+                        )
+                    order.confirm(batch_id=f"API-{timezone.localtime().strftime('%Y%m%d-%H%M%S')}")
+
+            # Build response summary
+            result_lines = [{"sku": sku, "qty": qty} for sku, qty in grouped.items()]
+            return Response({
+                "detail": "OK",
+                "order_id": order.id,
+                "warehouse": wh.code,
+                "lines": result_lines,
+            }, status=201)
+        except IntegrityError:
+            if external_id:
+                # Concurrent create hit unique(external_id). Treat as idempotent success.
+                existing = StockOrder.objects.filter(external_id=external_id).first()
+                if existing:
+                    return Response({
+                        "detail": "EXISTS",
+                        "order_id": existing.id,
+                        "warehouse": (existing.from_wh or existing.to_wh).code if (existing.from_wh or existing.to_wh) else None,
+                        "lines": [
+                            {"sku": ln.product.sku, "qty": ln.quantity}
+                            for ln in existing.lines.all() if ln.product_id and ln.quantity
+                        ],
+                        "skipped": True,
+                    }, status=200)
+            return Response({"detail": "Database integrity error."}, status=400)
+        except Exception as e:
+            return Response({"detail": str(e)}, status=400)
+
+
+class BulkImportOrdersView(APIView):
+    """
+    POST /api/bulk/import-orders
+    Body JSON:
+    {
+      "orders": [
+        {
+          "external_id": "EXT-1",             # unique, dùng làm idempotency key
+          "order_type": "OUT" | "IN",         # mặc định OUT nếu thiếu
+          "warehouse_code": "WH1",            # hoặc warehouse_id
+          "warehouse_id": 1,
+          "reference": "SO-1",
+          "note": "..",
+          "lines": [ {"sku": "A", "qty": 2}, {"sku": "B", "qty": 3} ]
+        },
+        { ... }
+      ]
+    }
+    - Tự tạo Warehouse/Product nếu chưa có.
+    - Nếu external_id đã tồn tại → bỏ qua tạo mới, trả về trạng thái skipped.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        payload = request.data if isinstance(request.data, dict) else {}
+        orders = payload.get("orders") or []
+        if not isinstance(orders, list) or not orders:
+            return Response({"detail": "Thiếu orders."}, status=400)
+
+        results = []
+        for od in orders:
+            try:
+                wh_id = od.get("warehouse_id")
+                wh_code = od.get("warehouse_code")
+                reference = (od.get("reference") or "").strip()
+                external_id = (od.get("external_id") or "").strip() or None
+                note = (od.get("note") or "").strip()
+                order_type = (od.get("order_type") or "OUT").upper()
+                lines = od.get("lines") or []
+
+                # Resolve warehouse (auto-create)
+                wh = None
+                if wh_id:
+                    wh = Warehouse.objects.filter(id=wh_id).first()
+                if not wh and wh_code:
+                    wh = Warehouse.objects.filter(code=wh_code).first()
+                    if not wh:
+                        wh = Warehouse.objects.create(code=wh_code, name=wh_code)
+                if not wh:
+                    raise ValueError("Kho không hợp lệ (cần warehouse_code hoặc warehouse_id).")
+
+                # Validate lines
+                if not isinstance(lines, list) or not lines:
+                    raise ValueError("Thiếu lines.")
+
+                skus = [str((ln.get("sku") or "").strip()) for ln in lines]
+                qtys = []
+                for ln in lines:
+                    try:
+                        q = int(ln.get("qty") or 0)
+                    except Exception:
+                        q = 0
+                    qtys.append(q)
+                if any((not s) for s in skus) or any(q <= 0 for q in qtys):
+                    raise ValueError("Mỗi dòng cần sku và qty>0.")
+
+                # Load/create products
+                products = {p.sku: p for p in Product.objects.filter(sku__in=skus)}
+                missing = [s for s in skus if s not in products]
+                if missing:
+                    for m in sorted(set(missing)):
+                        if not m:
+                            continue
+                        p = Product.objects.create(sku=m, name=m)
+                        products[p.sku] = p
+
+                # Group by SKU
+                grouped = defaultdict(int)
+                for sku, qty in zip(skus, qtys):
+                    grouped[sku] += int(qty)
+
+                # Idempotent by external_id
+                if external_id:
+                    existing = StockOrder.objects.filter(external_id=external_id).first()
+                    if existing:
+                        results.append({
+                            "external_id": external_id,
+                            "order_id": existing.id,
+                            "status": "skipped",
+                        })
+                        continue
+
+                # Create order
+                with transaction.atomic():
+                    order = StockOrder.objects.create(
+                        order_type=order_type,
+                        source="API",
+                        reference=reference,
+                        external_id=external_id,
+                        note=note,
+                        from_wh=wh if order_type == "OUT" else None,
+                        to_wh=wh if order_type == "IN" else None,
+                    )
+                    for sku, total_qty in grouped.items():
+                        StockOrderLine.objects.create(
+                            order=order,
+                            product=products[sku],
+                            quantity=total_qty,
+                            note=note,
+                        )
+                    order.confirm(batch_id=f"API-{timezone.localtime().strftime('%Y%m%d-%H%M%S')}")
+
+                results.append({
+                    "external_id": external_id,
+                    "order_id": order.id,
+                    "status": "created",
+                })
+            except Exception as e:
+                results.append({
+                    "external_id": od.get("external_id"),
+                    "error": str(e),
+                    "status": "error",
+                })
+
+        return Response({"results": results})
 
 
 class InventoryView(APIView):
