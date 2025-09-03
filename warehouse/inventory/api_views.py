@@ -8,6 +8,9 @@ from django.http import FileResponse, HttpResponse, HttpResponseBadRequest
 from django.conf import settings
 from pathlib import Path
 import csv, io, re, zipfile
+# thêm import (trên đầu file)
+from django.db.models.deletion import ProtectedError
+
 
 from rest_framework import viewsets, mixins, status
 from rest_framework.views import APIView
@@ -38,10 +41,32 @@ MEDIA_ROOT = Path(settings.MEDIA_ROOT)
 logger = logging.getLogger("inventory.scan")
 
 # ---------- CRUD cơ bản ----------
-class WarehouseViewSet(viewsets.ReadOnlyModelViewSet):
+# thay class WarehouseViewSet hiện tại bằng phiên bản CRUD
+class WarehouseViewSet(viewsets.ModelViewSet):
     queryset = Warehouse.objects.all().order_by("code")
     serializer_class = WarehouseSerializer
     permission_classes = [AllowAny]
+    http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        q = (self.request.query_params.get("q") or "").strip()
+        if q:
+            qs = qs.filter(Q(code__icontains=q) | Q(name__icontains=q))
+        return qs
+
+    # Trả lỗi 409 khi bị ràng buộc PROTECT thay vì văng lỗi 500
+    def destroy(self, request, *args, **kwargs):
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            return Response(
+                {"detail": "Kho đang được tham chiếu (Item/Inventory/Move). Không thể xoá."},
+                status=409,
+            )
+        except IntegrityError:
+            return Response({"detail": "Không thể xoá do ràng buộc CSDL."}, status=409)
+
 
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all().order_by("sku")
@@ -54,6 +79,18 @@ class ProductViewSet(viewsets.ModelViewSet):
         if q:
             qs = qs.filter(Q(sku__icontains=q)|Q(name__icontains=q)|Q(code4__icontains=q))
         return qs
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            return Response(
+                {"detail": "Sản phẩm đang được tham chiếu (Item/Inventory/Move). Không thể xoá."},
+                status=409,
+            )
+        except IntegrityError:
+            return Response({"detail": "Không thể xoá do ràng buộc CSDL."}, status=409)
+
 
 class ItemViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Item.objects.select_related("product","warehouse").order_by("-created_at")
