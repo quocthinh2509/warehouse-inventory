@@ -152,3 +152,16 @@ REST_FRAMEWORK = {
 }
 
 CORS_ALLOW_ALL_ORIGINS = True
+
+# Basic logging to see scan API logs in console during development
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {"class": "logging.StreamHandler"},
+    },
+    "loggers": {
+        # Log our inventory app (incl. inventory.scan) at INFO
+        "inventory": {"handlers": ["console"], "level": "INFO"},
+    },
+}

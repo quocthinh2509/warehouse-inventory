@@ -1,5 +1,6 @@
 # inventory/api_views.py
 from datetime import datetime, timedelta
+import logging
 from django.utils import timezone
 from django.db.models import Q, Sum, Max, Count, F, IntegerField, CharField, Case, When, Value
 from django.db import transaction, IntegrityError
@@ -33,6 +34,7 @@ from .views import (
 )
 
 MEDIA_ROOT = Path(settings.MEDIA_ROOT)
+logger = logging.getLogger("inventory.scan")
 
 # ---------- CRUD cơ bản ----------
 class WarehouseViewSet(viewsets.ReadOnlyModelViewSet):
@@ -773,7 +775,7 @@ class ScanView(APIView):
     def post(self, request):
         path = request.path
         if path.endswith("/start"):
-            act = (request.data.get("action") or "IN").upper()
+            act = (st.get("action") if st and st.get("action") else request.data.get("action"))
             wh_id = request.data.get("wh_id")
             wh = Warehouse.objects.filter(id=wh_id).first()
             tag_max = _tag_max_today(act, wh) + 1 if wh else 1
@@ -796,41 +798,64 @@ class ScanView(APIView):
             return Response({"detail":"Stopped","state":st})
 
         if path.endswith("/scan"):
-            st=_scan_state(request)
-            # if not st.get("active"): return Response({"detail":"Chưa bắt đầu."}, status=400)
-            code=(request.data.get("barcode") or "").strip()
-            if not code: return Response({"detail":"Thiếu barcode."}, status=400)
-            action = (st.get("action") if st else request.data.get("action"))
-            type_action = st.get("type_action") if st and st.get("type_action") else request.data.get("type_action")
+            # Stateless scan: read all params from request body; session only stores last scanned list
+            st = _scan_state(request)
+            code = (request.data.get("barcode") or "").strip()
+            if not code:
+                return Response({"detail": "Thiếu barcode."}, status=400)
+            action = (request.data.get("action") or "").strip().upper()
+            if action not in {"IN", "OUT"}:
+                return Response({"detail": "Thiếu hoặc action không hợp lệ (IN/OUT)."}, status=400)
+            type_action = (request.data.get("type_action") or "").strip()
             if not type_action:
                 return Response({"detail": "Thiếu type_action."}, status=400)
-            tag_value = st.get("tag") if st and st.get("tag") is not None else request.data.get("tag")
-            tag = int(tag_value) if tag_value is not None else 1
-            wh_id = (st.get("wh_id") if st else request.data.get("wh_id"))
-            wh = Warehouse.objects.filter(id=st.get("wh_id")).first()
+            tag_value = request.data.get("tag")
+            try:
+                tag = int(tag_value) if tag_value is not None else 1
+            except (TypeError, ValueError):
+                return Response({"detail": "Tag không hợp lệ."}, status=400)
+            wh_id = request.data.get("wh_id")
+            wh = Warehouse.objects.filter(id=wh_id).first() if wh_id else None
+            if action == "IN" and not wh:
+                return Response({"detail": "IN cần wh_id."}, status=400)
+
+            # --- Logging request context ---
+            try:
+                logger.info(
+                    "SCAN request: code=%s action=%s type=%s tag=%s wh_id=%s session_active=%s",
+                    code, action, (type_action or ""), tag, wh_id, bool(st and st.get("active"))
+                )
+            except Exception:
+                pass
             try:
                 item = Item.objects.select_for_update().select_related("product","warehouse").get(barcode_text=code)
             except Item.DoesNotExist:
+                logger.info("SCAN not_found: code=%s", code)
                 return Response({"detail":f"Không tìm thấy {code}"}, status=404)
 
             with transaction.atomic():
                 if action=="IN":
                     if item.warehouse:
+                        logger.info("SCAN IN blocked: code=%s already in %s", code, item.warehouse.code if item.warehouse else None)
                         return Response({"detail":f"{code} đang ở {item.warehouse.code}."}, status=400)
                     Move.objects.create(item=item, action="IN", to_wh=wh, type_action=type_action, tag=tag, note="IN (scan)")
                     item.warehouse=wh; item.status="in_stock"; item.save(update_fields=["warehouse","status"])
                     adjust_inventory(item.product, wh, +1)
                     msg=f"IN {code} → {wh.code}"
+                    logger.info("SCAN IN ok: code=%s to_wh=%s tag=%s type=%s", code, wh.code if wh else None, tag, type_action)
                 else:
                     if not item.warehouse:
+                        logger.info("SCAN OUT blocked: code=%s already OUT", code)
                         return Response({"detail":f"{code} đã OUT trước đó."}, status=400)
                     base_wh = wh or item.warehouse
                     if wh and item.warehouse != wh:
+                        logger.info("SCAN OUT blocked: code=%s in %s but session wh=%s", code, item.warehouse.code if item.warehouse else None, wh.code if wh else None)
                         return Response({"detail":f"{code} đang ở {item.warehouse.code}, khác kho phiên ({wh.code})."}, status=400)
                     Move.objects.create(item=item, action="OUT", from_wh=base_wh, type_action=type_action, tag=tag, note="OUT (scan)")
                     adjust_inventory(item.product, base_wh, -1)
                     item.warehouse=None; item.status="shipped"; item.save(update_fields=["warehouse","status"])
                     msg=f"OUT {code}"
+                    logger.info("SCAN OUT ok: code=%s from_wh=%s tag=%s type=%s", code, base_wh.code if base_wh else None, tag, type_action)
             st["scanned"] = [code] + st.get("scanned", [])[:19]; _save_scan_state(request, st)
             return Response({"detail":msg,"state":st})
         return Response({"detail":"Unsupported"}, status=404)
