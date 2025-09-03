@@ -775,11 +775,17 @@ class ScanView(APIView):
     def post(self, request):
         path = request.path
         if path.endswith("/start"):
-            act = (st.get("action") if st and st.get("action") else request.data.get("action"))
+            # Read all from body; do not rely on previous session vars
+            act = (request.data.get("action") or "").strip().upper()
+            if act not in {"IN", "OUT"}:
+                return Response({"detail": "Thiếu hoặc action không hợp lệ (IN/OUT)."}, status=400)
             wh_id = request.data.get("wh_id")
             wh = Warehouse.objects.filter(id=wh_id).first()
             tag_max = _tag_max_today(act, wh) + 1 if wh else 1
-            tag = int(request.data.get("tag") or tag_max)
+            try:
+                tag = int(request.data.get("tag") or tag_max)
+            except (TypeError, ValueError):
+                return Response({"detail": "Tag không hợp lệ."}, status=400)
             tag = tag if 1<=tag<=tag_max else tag_max
             st = {
                 "active": True,
@@ -790,11 +796,21 @@ class ScanView(APIView):
                 "started_at": timezone.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "scanned": [],
             }
+            try:
+                logger.info("SCAN start: action=%s type=%s wh_id=%s tag=%s", act, st.get("type_action"), wh_id, tag)
+            except Exception:
+                pass
             _save_scan_state(request, st)
             return Response({"detail":"OK","state":st})
 
         if path.endswith("/stop"):
-            st = _scan_state(request); st["active"]=False; _save_scan_state(request, st)
+            st = _scan_state(request)
+            st["active"]=False
+            _save_scan_state(request, st)
+            try:
+                logger.info("SCAN stop: wh_id=%s tag=%s", st.get("wh_id"), st.get("tag"))
+            except Exception:
+                pass
             return Response({"detail":"Stopped","state":st})
 
         if path.endswith("/scan"):
