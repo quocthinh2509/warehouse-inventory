@@ -5,7 +5,7 @@ from .api_views import (
     WarehouseViewSet, ProductViewSet, ItemViewSet,
     InventoryView, HistoryView, HistoryStatsView, HistoryUpdatesView,
     ManualBatchView, ScanView, GenerateLabelsView, BarcodeCheckView,
-    BulkOutBySkuView, BulkImportOrdersView,
+    BulkOutBySkuView, BulkImportOrdersView,BatchTagSuggestAPI, 
 )
 
 router = DefaultRouter()
@@ -50,4 +50,5 @@ urlpatterns = [
     path("barcode/check", BarcodeCheckView.as_view(), name="api_barcode_check"),
     # (tuỳ chọn) path dùng URL param:
     path("barcode/<str:barcode>", BarcodeCheckView.as_view(), name="api_barcode_check_slug"),
+    path("batches/tag-suggest", BatchTagSuggestAPI.as_view(), name="api_batch_tag_suggest"),
 ]

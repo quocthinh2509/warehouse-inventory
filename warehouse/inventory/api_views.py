@@ -21,7 +21,8 @@ from django.core.exceptions import ValidationError
 from .models import Product, Warehouse, Item, Inventory, Move, StockOrder, StockOrderLine
 from .serializers import (
     ProductSerializer, WarehouseSerializer, ItemSerializer,
-    InventorySerializer, MoveSerializer
+    InventorySerializer, MoveSerializer,
+    BatchTagSuggestInputSerializer, BatchTagSuggestOutputSerializer,
 )
 
 # === import helpers từ views.py (giữ nguyên file gốc) ===
@@ -1026,3 +1027,48 @@ class BarcodeCheckView(APIView):
     def post(self, request):
         # Same behavior as GET but read barcode from body
         return self.get(request)
+class BatchTagSuggestAPI(APIView):
+    """
+    POST /api/batches/tag-suggest
+    Body JSON:
+      { "action": "IN" | "OUT", "warehouse": "<tên hoặc code>", (optional) "date": "YYYY-MM-DD" }
+    Trả về:
+      { action, warehouse, date, count, next, tags:[1..count+1] }
+    - Đếm theo ngày (created_at__date = date). Nếu không gửi date thì dùng hôm nay (localdate).
+    - IN: lọc Move(to_wh=warehouse); OUT: lọc Move(from_wh=warehouse).
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        ser_in = BatchTagSuggestInputSerializer(data=request.data)
+        if not ser_in.is_valid():
+            return Response(ser_in.errors, status=400)
+
+        action = ser_in.validated_data["action"]
+        wh_text = ser_in.validated_data["warehouse"].strip()
+        day = ser_in.validated_data.get("date") or timezone.localdate()
+
+        # Tìm kho theo code hoặc name (không phân biệt hoa thường)
+        wh = Warehouse.objects.filter(Q(code__iexact=wh_text) | Q(name__iexact=wh_text)).first()
+        if not wh:
+            return Response({"detail": f"Không tìm thấy warehouse '{wh_text}'"}, status=404)
+
+        # Đếm distinct tag theo action + kho + ngày
+        if action == "IN":
+            qs = Move.objects.filter(action="IN", to_wh=wh, created_at__date=day)
+        else:
+            qs = Move.objects.filter(action="OUT", from_wh=wh, created_at__date=day)
+
+        total = qs.values("tag").distinct().count()
+        next_tag = total + 1
+        tags = list(range(1, next_tag + 1))
+
+        payload = {
+            "action": action,
+            "warehouse": WarehouseSerializer(wh).data,
+            "date": day,
+            "count": total,
+            "next": next_tag,
+            "tags": tags,
+        }
+        return Response(BatchTagSuggestOutputSerializer(payload).data, status=200)

@@ -69,3 +69,19 @@ class MoveSerializer(serializers.ModelSerializer):
             "type_action","note","tag","batch_id"
         ]
         read_only_fields = ["created_at"]
+
+# ===== Batch Tag Suggest (IN/OUT + warehouse -> [1..count+1]) =====
+class BatchTagSuggestInputSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(choices=["IN", "OUT"])
+    warehouse = serializers.CharField(help_text="Tên hoặc code của kho")
+    # YYYY-MM-DD (tùy chọn). Nếu không gửi thì mặc định hôm nay (localdate)
+    date = serializers.DateField(required=False)
+
+class BatchTagSuggestOutputSerializer(serializers.Serializer):
+    action = serializers.CharField()
+    warehouse = WarehouseSerializer()
+    date = serializers.DateField()
+    count = serializers.IntegerField()
+    next = serializers.IntegerField()
+    tags = serializers.ListField(child=serializers.IntegerField())
+
