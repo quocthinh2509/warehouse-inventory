@@ -1113,3 +1113,178 @@ class BatchTagSuggestAPI(APIView):
             "tags": tags,
         }
         return Response(BatchTagSuggestOutputSerializer(payload).data, status=200)
+
+# ---------- Beginning-of-Month Stocktake (BOM) ----------
+class BOMStocktakeView(APIView):
+    """
+    POST /api/stocktake/bom
+
+    Đầu vào (chọn 1 trong 2):
+    A) JSON:
+       {
+         "month": "2025-09",                 # yêu cầu (YYYY-MM)
+         "dry_run": true,                    # tùy chọn (mặc định false) -> chỉ xem delta, không ghi DB
+         "batch_code": "BOM-202509",         # tùy chọn, mặc định "BOM-<YYYYMM>"
+         "lines": [
+            {"warehouse_code":"VN", "sku":"FEGPLSEYECRM", "counted_qty":120},
+            {"warehouse_code":"US", "sku":"SKUTFM", "counted_qty":40}
+         ]
+       }
+
+    B) multipart/form-data (CSV):
+       - file=stocktake.csv (các cột: warehouse_code, sku, counted_qty)
+       - month=YYYY-MM
+       - dry_run=1 (tùy chọn)
+       - batch_code=BOM-YYYYMM (tùy chọn)
+
+    Hành vi:
+    - Tính delta = counted - current (current lấy từ bảng Inventory).
+    - Nếu dry_run: trả về danh sách delta, KHÔNG ghi Move/Inventory.
+    - Nếu không dry_run:
+        + delta>0 -> tạo Move IN (type_action="ADJUST") vào kho.
+        + delta<0 -> tạo Move OUT (type_action="ADJUST") từ kho.
+        + gọi mv.apply() để cập nhật Inventory đúng chuẩn.
+    - Gom theo batch_id = "BOM-YYYYMM" (hoặc batch_code gửi vào).
+    - Nếu batch_id đã được dùng cho ADJUST trước đó -> trả 409 (tránh double apply).
+    """
+    permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def _read_lines_from_request(self, request):
+        # Ưu tiên JSON "lines"
+        if isinstance(request.data, dict) and "lines" in request.data:
+            return request.data.get("lines") or []
+
+        # Nếu upload file CSV
+        f = request.FILES.get("file")
+        if not f:
+            return None
+        try:
+            text = f.read().decode("utf-8-sig")
+            rdr = csv.DictReader(io.StringIO(text))
+            rows = []
+            for r in rdr:
+                rows.append({
+                    "warehouse_code": (r.get("warehouse_code") or "").strip(),
+                    "sku": (r.get("sku") or "").strip(),
+                    "counted_qty": int(r.get("counted_qty") or 0),
+                })
+            return rows
+        except Exception as e:
+            raise ValidationError(f"Lỗi đọc CSV: {e}")
+
+    def post(self, request):
+        # --- month & batch ---
+        month = (request.data.get("month") or "").strip()  # "YYYY-MM"
+        if not re.match(r"^\d{4}-\d{2}$", month):
+            return Response({"detail": "Thiếu/không hợp lệ 'month' (YYYY-MM)."}, status=400)
+
+        y, m = month.split("-")
+        batch_code = (request.data.get("batch_code") or f"BOM-{y}{m}").strip()
+        dry_run = str(request.data.get("dry_run") or "").lower() in {"1","true","yes","on"}
+
+        # --- đọc dữ liệu ---
+        lines = self._read_lines_from_request(request)
+        if lines is None or not isinstance(lines, list) or not lines:
+            return Response({"detail": "Thiếu dữ liệu kiểm kê (lines hoặc file)."}, status=400)
+
+        # Gom theo (warehouse_code, sku) -> lấy counted cuối cùng (hoặc bạn đổi thành cộng dồn tùy quy trình)
+        grouped = {}
+        for ln in lines:
+            whc = (ln.get("warehouse_code") or "").strip()
+            sku = (ln.get("sku") or "").strip()
+            try:
+                qty = int(ln.get("counted_qty") or 0)
+            except Exception:
+                qty = 0
+            if not whc or not sku:
+                continue
+            grouped[(whc, sku)] = qty
+
+        # Nếu đã có batch ADJUST cùng mã -> 409 (tránh double-apply)
+        if not dry_run:
+            exists = Move.objects.filter(batch_id=batch_code, type_action="ADJUST").exists()
+            if exists:
+                return Response(
+                    {"detail": f"Batch '{batch_code}' đã tồn tại (ADJUST). Không thể áp lại."},
+                    status=409
+                )
+
+        results = []
+        created_in = created_out = 0
+
+        # Chuẩn bị map kho & sản phẩm; auto-create nếu thiếu
+        wh_codes = sorted({whc for (whc, _) in grouped.keys()})
+        skus = sorted({s for (_, s) in grouped.keys()})
+
+        with transaction.atomic():
+            wh_map = {w.code: w for w in Warehouse.objects.filter(code__in=wh_codes)}
+            for whc in wh_codes:
+                if whc not in wh_map:
+                    wh_map[whc] = Warehouse.objects.create(code=whc, name=whc)
+
+            prod_map = {p.sku: p for p in Product.objects.filter(sku__in=skus)}
+            for s in skus:
+                if s not in prod_map:
+                    prod_map[s] = Product.objects.create(sku=s, name=s)
+
+            # Tính delta so với Inventory hiện tại và (nếu !dry_run) tạo Move.apply()
+            for (whc, sku), counted in grouped.items():
+                wh = wh_map[whc]
+                prod = prod_map[sku]
+
+                current = (Inventory.objects
+                           .filter(product=prod, warehouse=wh)
+                           .aggregate(t=Sum("qty")).get("t")) or 0
+                delta = int(counted) - int(current)
+
+                row = {
+                    "month": month,
+                    "batch_id": batch_code,
+                    "warehouse": whc,
+                    "sku": sku,
+                    "current": current,
+                    "counted": counted,
+                    "delta": delta
+                }
+
+                if dry_run or delta == 0:
+                    row["status"] = "no_change" if delta == 0 else "preview"
+                    results.append(row)
+                    continue
+
+                # Ghi Move ADJUST + apply
+                if delta > 0:
+                    mv = Move.objects.create(
+                        product=prod, quantity=delta, action="IN",
+                        to_wh=wh, type_action="ADJUST",
+                        note=f"BOM {month} adjust +{delta}",
+                        batch_id=batch_code
+                    )
+                    mv.apply()
+                    created_in += 1
+                    row["status"] = "IN"
+                    row["move_id"] = mv.id
+                else:
+                    mv = Move.objects.create(
+                        product=prod, quantity=abs(delta), action="OUT",
+                        from_wh=wh, type_action="ADJUST",
+                        note=f"BOM {month} adjust {delta}",
+                        batch_id=batch_code
+                    )
+                    mv.apply()
+                    created_out += 1
+                    row["status"] = "OUT"
+                    row["move_id"] = mv.id
+
+                results.append(row)
+
+        payload = {
+            "detail": "PREVIEW" if dry_run else "OK",
+            "month": month,
+            "batch_id": batch_code,
+            "created_moves_in": created_in,
+            "created_moves_out": created_out,
+            "lines": results[:2000]  # tránh quá lớn
+        }
+        return Response(payload, status=200 if dry_run else 201)
