@@ -670,18 +670,42 @@ class ManualBatchView(APIView):
             return Response({"detail":"Đã xoá tất cả dòng."})
 
         if path.endswith("/finalize"):
-            st = _manual_batch(request)
-            if not st.get("active"): return Response({"detail":"Chưa bắt đầu."}, status=400)
+            # Stateless finalize: read all inputs from request body instead of session
+            def to_bool(v):
+                s = str(v).strip().lower()
+                return s in {"1","true","yes","on"}
+
+            action = (request.data.get("action") or "").strip().upper()
+            if action not in {"IN","OUT"}:
+                return Response({"detail":"Thiếu hoặc action không hợp lệ (IN/OUT)."}, status=400)
+
+            wh_id = request.data.get("wh_id")
+            wh = Warehouse.objects.select_for_update().filter(id=wh_id).first()
+            if not wh:
+                return Response({"detail":"Kho không hợp lệ."}, status=400)
+
+            allow = to_bool(request.data.get("allow_consume_itemized", False))
+
+            batch_id = (request.data.get("batch_code") or "").strip() or timezone.localtime().strftime("%Y%m%d-%H%M%S")
+            lines = request.data.get("lines") or []
+            if not isinstance(lines, list) or not lines:
+                return Response({"detail":"Thiếu lines."}, status=400)
+
+            created_moves = 0
             with transaction.atomic():
-                wh = Warehouse.objects.select_for_update().filter(id=st["wh_id"]).first()
-                action = st["action"]
-                allow = st.get("allow_consume_itemized", False)
-                batch_id = st.get("batch_code") or timezone.localtime().strftime("%Y%m%d-%H%M%S")
-                created_moves = 0
-                for ln in st.get("lines", []):
-                    product = Product.objects.filter(sku=ln["sku"]).first()
-                    if not product: continue
-                    qty = int(ln["qty"])
+                for ln in lines:
+                    sku = (ln.get("sku") or "").strip()
+                    try:
+                        qty = int(ln.get("qty") or 0)
+                    except (TypeError, ValueError):
+                        return Response({"detail": f"Qty không hợp lệ cho SKU {sku}."}, status=400)
+                    if not sku or qty <= 0:
+                        return Response({"detail": f"Dòng không hợp lệ (sku/qty)."}, status=400)
+
+                    product = Product.objects.filter(sku=sku).first()
+                    if not product:
+                        return Response({"detail": f"SKU {sku} không tồn tại."}, status=404)
+
                     if action == "IN":
                         Move.objects.create(product=product, quantity=qty, action="IN", to_wh=wh,
                                             type_action="MANUAL", note="IN (manual bulk)", batch_id=batch_id)
@@ -689,18 +713,26 @@ class ManualBatchView(APIView):
                         created_moves += 1
                     else:
                         bulk_used, picked_items = allocate_bulk_out(product, wh, qty, allow_consume_itemized=allow)
-                        if bulk_used>0:
+                        if bulk_used > 0:
                             Move.objects.create(product=product, quantity=bulk_used, action="OUT", from_wh=wh,
                                                 type_action="MANUAL", note="OUT (manual bulk)", batch_id=batch_id)
-                            adjust_inventory(product, wh, -bulk_used); created_moves += 1
+                            adjust_inventory(product, wh, -bulk_used)
+                            created_moves += 1
                         for it in picked_items:
                             Move.objects.create(item=it, action="OUT", from_wh=wh,
                                                 type_action="MANUAL", note="OUT (manual picked)", batch_id=batch_id)
                             adjust_inventory(it.product, wh, -1)
-                            it.warehouse=None; it.status="shipped"; it.save(update_fields=["warehouse","status"])
+                            it.warehouse = None; it.status = "shipped"; it.save(update_fields=["warehouse","status"])
                             created_moves += 1
-                request.session["manual_batch"]={"active":False,"lines":[]}; request.session.modified=True
-                return Response({"detail":"OK","batch_id":batch_id,"created_moves":created_moves})
+
+            # Clear any session batch (optional)
+            try:
+                request.session["manual_batch"] = {"active": False, "lines": []}
+                request.session.modified = True
+            except Exception:
+                pass
+
+            return Response({"detail":"OK","batch_id":batch_id,"created_moves":created_moves})
 
         if path.endswith("/upload"):
             st = _manual_batch(request)
