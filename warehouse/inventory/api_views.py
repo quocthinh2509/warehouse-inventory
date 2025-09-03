@@ -20,6 +20,7 @@ from rest_framework.permissions import IsAuthenticatedOrReadOnly, AllowAny
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.core.exceptions import ValidationError
+from .pagination import PageLimitPagination
 
 from .models import Product, Warehouse, Item, Inventory, Move, StockOrder, StockOrderLine
 from .serializers import (
@@ -45,6 +46,7 @@ logger = logging.getLogger("inventory.scan")
 class WarehouseViewSet(viewsets.ModelViewSet):
     queryset = Warehouse.objects.all().order_by("code")
     serializer_class = WarehouseSerializer
+    pagination_class = PageLimitPagination
     permission_classes = [AllowAny]
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
 
@@ -72,6 +74,8 @@ class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all().order_by("sku")
     serializer_class = ProductSerializer
     permission_classes = [AllowAny]
+    pagination_class = PageLimitPagination
+
 
     def get_queryset(self):
         qs = super().get_queryset()
