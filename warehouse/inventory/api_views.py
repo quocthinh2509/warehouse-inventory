@@ -1129,40 +1129,39 @@ class BOMStocktakeView(APIView):
     Đầu vào (chọn 1 trong 2):
     A) JSON:
        {
-         "month": "2025-09",                 # yêu cầu (YYYY-MM)
-         "dry_run": true,                    # tùy chọn (mặc định false) -> chỉ xem delta, không ghi DB
-         "batch_code": "BOM-202509",         # tùy chọn, mặc định "BOM-<YYYYMM>"
+         # --- Cách mới (khuyến nghị) ---
+         "dt": "2025-09-03T22:53:05+07:00",   # datetime ISO-8601 (khuyến nghị)
+         "dry_run": true,                      # tuỳ chọn (mặc định false)
+         "batch_code": "BOM-20250903-225305",  # tuỳ chọn, mặc định BOM-<YYYYMMDD-HHMMSS> theo dt
          "lines": [
             {"warehouse_code":"VN", "sku":"FEGPLSEYECRM", "counted_qty":120},
             {"warehouse_code":"US", "sku":"SKUTFM", "counted_qty":40}
          ]
+
+         # --- Cách cũ (tương thích) ---
+         # "month": "2025-09"
        }
 
     B) multipart/form-data (CSV):
        - file=stocktake.csv (các cột: warehouse_code, sku, counted_qty)
-       - month=YYYY-MM
+       - dt=ISO-8601 (khuyến nghị) hoặc month=YYYY-MM (cũ)
        - dry_run=1 (tùy chọn)
-       - batch_code=BOM-YYYYMM (tùy chọn)
+       - batch_code=BOM-YYYYMMDD-HHMMSS (tùy chọn)
 
     Hành vi:
-    - Tính delta = counted - current (current lấy từ bảng Inventory).
-    - Nếu dry_run: trả về danh sách delta, KHÔNG ghi Move/Inventory.
-    - Nếu không dry_run:
-        + delta>0 -> tạo Move IN (type_action="ADJUST") vào kho.
-        + delta<0 -> tạo Move OUT (type_action="ADJUST") từ kho.
-        + gọi mv.apply() để cập nhật Inventory đúng chuẩn.
-    - Gom theo batch_id = "BOM-YYYYMM" (hoặc batch_code gửi vào).
-    - Nếu batch_id đã được dùng cho ADJUST trước đó -> trả 409 (tránh double apply).
+    - Tính delta = counted - current.
+    - dry_run: chỉ trả delta, KHÔNG ghi.
+    - !dry_run: tạo Move ADJUST IN/OUT theo delta và mv.apply().
+    - Tránh double-apply theo batch_code trùng (409).
     """
     permission_classes = [AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
+    # -------- helpers --------
     def _read_lines_from_request(self, request):
-        # Ưu tiên JSON "lines"
         if isinstance(request.data, dict) and "lines" in request.data:
             return request.data.get("lines") or []
 
-        # Nếu upload file CSV
         f = request.FILES.get("file")
         if not f:
             return None
@@ -1180,14 +1179,47 @@ class BOMStocktakeView(APIView):
         except Exception as e:
             raise ValidationError(f"Lỗi đọc CSV: {e}")
 
-    def post(self, request):
-        # --- month & batch ---
-        month = (request.data.get("month") or "").strip()  # "YYYY-MM"
-        if not re.match(r"^\d{4}-\d{2}$", month):
-            return Response({"detail": "Thiếu/không hợp lệ 'month' (YYYY-MM)."}, status=400)
+    def _parse_datetime(self, request):
+        """
+        Ưu tiên đọc dt|datetime (ISO-8601). Nếu không có, vẫn chấp nhận month=YYYY-MM (cũ).
+        Trả về (aware_datetime, month_str_for_display_or_None).
+        """
+        tz = timezone.get_current_timezone()
+        dt_raw = (request.data.get("dt")
+                  or request.data.get("datetime")
+                  or "").strip()
 
-        y, m = month.split("-")
-        batch_code = (request.data.get("batch_code") or f"BOM-{y}{m}").strip()
+        if dt_raw:
+            try:
+                # Python 3.11: fromisoformat hỗ trợ 'YYYY-MM-DD HH:MM:SS' và 'T'
+                dt = datetime.fromisoformat(dt_raw.replace("Z", "+00:00"))
+                if timezone.is_naive(dt):
+                    dt = tz.localize(dt)
+                return dt, None
+            except Exception:
+                raise ValidationError("Trường 'dt' (datetime) không hợp lệ. Dùng ISO-8601, ví dụ 2025-09-03T22:53:05+07:00")
+
+        # Backward-compat: month=YYYY-MM (cũ)
+        month = (request.data.get("month") or "").strip()
+        if month:
+            if not re.match(r"^\d{4}-\d{2}$", month):
+                raise ValidationError("Trường 'month' không hợp lệ (YYYY-MM).")
+            # Nếu chỉ có month, gán thời điểm là ngày 01 00:00 theo TZ hiện tại
+            y, m = month.split("-")
+            dt = tz.localize(datetime(int(y), int(m), 1, 0, 0, 0))
+            return dt, month
+
+        # Không có dt cũng không có month -> dùng now()
+        return timezone.now(), None
+
+    # -------- main --------
+    def post(self, request):
+        # --- thời điểm batch ---
+        dt, month_for_display = self._parse_datetime(request)
+        at_str = dt.isoformat(timespec="seconds")
+        # batch_code mặc định: BOM-YYYYMMDD-HHMMSS
+        default_batch = f"BOM-{dt.strftime('%Y%m%d-%H%M%S')}"
+        batch_code = (request.data.get("batch_code") or default_batch).strip()
         dry_run = str(request.data.get("dry_run") or "").lower() in {"1","true","yes","on"}
 
         # --- đọc dữ liệu ---
@@ -1195,7 +1227,7 @@ class BOMStocktakeView(APIView):
         if lines is None or not isinstance(lines, list) or not lines:
             return Response({"detail": "Thiếu dữ liệu kiểm kê (lines hoặc file)."}, status=400)
 
-        # Gom theo (warehouse_code, sku) -> lấy counted cuối cùng (hoặc bạn đổi thành cộng dồn tùy quy trình)
+        # Gom theo (warehouse_code, sku) -> lấy counted cuối cùng
         grouped = {}
         for ln in lines:
             whc = (ln.get("warehouse_code") or "").strip()
@@ -1208,7 +1240,6 @@ class BOMStocktakeView(APIView):
                 continue
             grouped[(whc, sku)] = qty
 
-        # Nếu đã có batch ADJUST cùng mã -> 409 (tránh double-apply)
         if not dry_run:
             exists = Move.objects.filter(batch_id=batch_code, type_action="ADJUST").exists()
             if exists:
@@ -1220,7 +1251,7 @@ class BOMStocktakeView(APIView):
         results = []
         created_in = created_out = 0
 
-        # Chuẩn bị map kho & sản phẩm; auto-create nếu thiếu
+        # Chuẩn bị map kho, sản phẩm
         wh_codes = sorted({whc for (whc, _) in grouped.keys()})
         skus = sorted({s for (_, s) in grouped.keys()})
 
@@ -1235,7 +1266,7 @@ class BOMStocktakeView(APIView):
                 if s not in prod_map:
                     prod_map[s] = Product.objects.create(sku=s, name=s)
 
-            # Tính delta so với Inventory hiện tại và (nếu !dry_run) tạo Move.apply()
+            # Tính delta & (nếu cần) apply
             for (whc, sku), counted in grouped.items():
                 wh = wh_map[whc]
                 prod = prod_map[sku]
@@ -1246,7 +1277,8 @@ class BOMStocktakeView(APIView):
                 delta = int(counted) - int(current)
 
                 row = {
-                    "month": month,
+                    "at": at_str,                        # NEW
+                    "month": month_for_display,          # giữ cho tương thích (có thể None)
                     "batch_id": batch_code,
                     "warehouse": whc,
                     "sku": sku,
@@ -1260,13 +1292,13 @@ class BOMStocktakeView(APIView):
                     results.append(row)
                     continue
 
-                # Ghi Move ADJUST + apply
+                note = f"BOM {at_str} adjust {('+' if delta>0 else '')}{delta}"
+
                 if delta > 0:
                     mv = Move.objects.create(
                         product=prod, quantity=delta, action="IN",
                         to_wh=wh, type_action="ADJUST",
-                        note=f"BOM {month} adjust +{delta}",
-                        batch_id=batch_code
+                        note=note, batch_id=batch_code
                     )
                     mv.apply()
                     created_in += 1
@@ -1276,8 +1308,7 @@ class BOMStocktakeView(APIView):
                     mv = Move.objects.create(
                         product=prod, quantity=abs(delta), action="OUT",
                         from_wh=wh, type_action="ADJUST",
-                        note=f"BOM {month} adjust {delta}",
-                        batch_id=batch_code
+                        note=note, batch_id=batch_code
                     )
                     mv.apply()
                     created_out += 1
@@ -1288,10 +1319,14 @@ class BOMStocktakeView(APIView):
 
         payload = {
             "detail": "PREVIEW" if dry_run else "OK",
-            "month": month,
+            "at": at_str,                    # NEW: thời điểm batch
             "batch_id": batch_code,
             "created_moves_in": created_in,
             "created_moves_out": created_out,
-            "lines": results[:2000]  # tránh quá lớn
+            "lines": results[:2000]
         }
+        # vẫn trả kèm "month" nếu client cũ cần
+        if month_for_display:
+            payload["month"] = month_for_display
+
         return Response(payload, status=200 if dry_run else 201)
