@@ -836,6 +836,11 @@ class ManualBatchView(APIView):
             return Response({"lines": _manual_batch(request).get("lines",[])})
         return Response({"detail":"Unsupported"}, status=404)
 
+def _should_affect_inventory(data) -> bool:
+    """Trả về False nếu client gửi no_inv=True."""
+    return str(data.get("no_inv")).lower() not in {"true", "1", "yes"}
+
+
 # ---------- Scan Session (session-based API) ----------
 class ScanView(APIView):
     """
@@ -891,6 +896,7 @@ class ScanView(APIView):
             # Stateless scan: read all params from request body; session only stores last scanned list
             st = _scan_state(request)
             code = (request.data.get("barcode") or "").strip()
+            affect_inv = _should_affect_inventory(request.data)
             if not code:
                 return Response({"detail": "Thiếu barcode."}, status=400)
             action = (request.data.get("action") or "").strip().upper()
@@ -930,7 +936,8 @@ class ScanView(APIView):
                         return Response({"detail":f"{code} đang ở {item.warehouse.code}."}, status=400)
                     Move.objects.create(item=item, action="IN", to_wh=wh, type_action=type_action, tag=tag, note="IN (scan)")
                     item.warehouse=wh; item.status="in_stock"; item.save(update_fields=["warehouse","status"])
-                    adjust_inventory(item.product, wh, +1)
+                    if affect_inv:
+                        adjust_inventory(item.product, wh, +1)
                     msg=f"IN {code} → {wh.code}"
                     logger.info("SCAN IN ok: code=%s to_wh=%s tag=%s type=%s", code, wh.code if wh else None, tag, type_action)
                 else:
