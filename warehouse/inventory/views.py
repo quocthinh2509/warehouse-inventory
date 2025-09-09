@@ -23,6 +23,9 @@ from .models import Product, Warehouse, Item, Inventory, Move, SavedQuery
 from .forms import GenerateForm, ScanMoveForm, ProductForm, SQLQueryForm
 from .utils import make_payload, save_code128_png
 from io import StringIO
+from typing import Tuple, List
+from rest_framework.exceptions import ValidationError as DRFValidationError
+
 MEDIA_ROOT = Path(settings.MEDIA_ROOT)
 
 try:
@@ -639,31 +642,95 @@ def preview_bulk_out(product: Product, warehouse: Warehouse, qty: int):
         "will_consume_itemized": lack > 0, # nếu cho phép “bốc item”
     }
 
-def allocate_bulk_out(product: Product, from_wh: Warehouse, qty: int, allow_consume_itemized=False):
+# def allocate_bulk_out(product: Product, from_wh: Warehouse, qty: int, allow_consume_itemized=False):
+#     """
+#     Finalize: quyết định trừ từ bulk bao nhiêu và cần 'bốc' bao nhiêu Item.
+#     Trả về (bulk_used, picked_items:list[Item]).
+#     """
+#     with transaction.atomic():
+#         inv, itemized_cnt, bulk_pool = get_pools_locked(product, from_wh)
+#         if qty <= bulk_pool:
+#             return qty, []
+
+#         if not allow_consume_itemized:
+#             raise ValidationError(
+#                 f"Không đủ hàng bulk để OUT {qty}. Còn bulk={bulk_pool}, itemized={itemized_cnt}."
+#             )
+
+#         need_items = qty - bulk_pool
+#         qs = (Item.objects
+#               .select_for_update()
+#               .filter(product=product, warehouse=from_wh, status="in_stock")
+#               .order_by("created_at", "id"))  # FIFO
+#         picked = list(qs[:need_items])
+#         if len(picked) < need_items:
+#             raise ValidationError(
+#                 f"Không đủ hàng (kể cả item) để OUT {qty}. bulk={bulk_pool}, itemized={itemized_cnt}."
+#             )
+#         return bulk_pool, picked
+
+def allocate_bulk_out(
+    product: Product,
+    from_wh: Warehouse,
+    qty: int,
+    allow_consume_itemized: bool = False
+) -> Tuple[int, List[Item]]:
     """
-    Finalize: quyết định trừ từ bulk bao nhiêu và cần 'bốc' bao nhiêu Item.
-    Trả về (bulk_used, picked_items:list[Item]).
+    Quyết định trừ từ bulk bao nhiêu và cần 'bốc' bao nhiêu Item.
+    Trả về (bulk_used, picked_items: list[Item]).
+
+    Raises:
+        DRFValidationError: nếu không đủ hàng theo cấu hình cho phép.
     """
+    if qty <= 0:
+        raise DRFValidationError({
+            "message": "Số lượng OUT phải > 0.",
+            "code": "INVALID_QTY",
+            "requested_qty": qty
+        })
+
     with transaction.atomic():
         inv, itemized_cnt, bulk_pool = get_pools_locked(product, from_wh)
+
+        # Đủ bulk -> chỉ dùng bulk
         if qty <= bulk_pool:
             return qty, []
 
+        # Không cho bốc item -> báo lỗi thiếu bulk
         if not allow_consume_itemized:
-            raise ValidationError(
-                f"Không đủ hàng bulk để OUT {qty}. Còn bulk={bulk_pool}, itemized={itemized_cnt}."
-            )
+            raise DRFValidationError({
+                "message": (
+                    f"Không đủ hàng bulk để OUT {qty}. "
+                    f"Còn bulk={bulk_pool}, itemized={itemized_cnt}."
+                ),
+                "code": "INSUFFICIENT_BULK",
+                "requested_qty": qty,
+                "bulk_pool": bulk_pool,
+                "itemized_cnt": itemized_cnt
+            })
 
+        # Cho bốc item -> lấy thêm item cho đủ
         need_items = qty - bulk_pool
         qs = (Item.objects
               .select_for_update()
               .filter(product=product, warehouse=from_wh, status="in_stock")
               .order_by("created_at", "id"))  # FIFO
         picked = list(qs[:need_items])
+
         if len(picked) < need_items:
-            raise ValidationError(
-                f"Không đủ hàng (kể cả item) để OUT {qty}. bulk={bulk_pool}, itemized={itemized_cnt}."
-            )
+            raise DRFValidationError({
+                "message": (
+                    f"Không đủ hàng (kể cả item) để OUT {qty}. "
+                    f"bulk={bulk_pool}, itemized={itemized_cnt}."
+                ),
+                "code": "INSUFFICIENT_TOTAL",
+                "requested_qty": qty,
+                "bulk_pool": bulk_pool,
+                "itemized_cnt": itemized_cnt,
+                "can_pick": len(picked),
+                "need_items": need_items
+            })
+
         return bulk_pool, picked
 
 # ==== Views cho Manual IN/OUT ====
