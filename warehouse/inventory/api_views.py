@@ -1339,101 +1339,89 @@ class BOMStocktakeView(APIView):
 
 
 BARCODE_RE = re.compile(r"^\d{15}$")  # 4 + 6 + 5 theo quy ước
-
 class ReprintBarcodesView(APIView):
     """
     POST /api/barcodes/reprint
-    body:
+    Body:
     {
-      "lines": ["123456789012345", "5678..."],
-      "out_dir": "labels/reprint-202509",   # (optional) thư mục con trong MEDIA_ROOT
-      "max": 500                            # (optional) giới hạn số lượng (mặc định 300)
+        "lines": ["927610092500022", "...."],  # danh sách barcode cần in lại
+        "out_dir": "labels/reprint"            # (optional) thư mục gốc chứa batch trong MEDIA_ROOT
     }
 
-    Trả về: file .zip chứa ảnh barcode PNG đã sinh.
+    Hành vi:
+    - Không tạo Item mới.
+    - Sinh ảnh PNG cho từng barcode trong 'lines', đặt trong batch: <out_dir>/<YYYYMMDD-HHMMSS>/
+    - Đóng gói ZIP và trả về file đính kèm.
     """
     permission_classes = [AllowAny]
     parser_classes = [JSONParser]
 
-    def post(self, request, *args, **kwargs):
-        lines = request.data.get("lines") or []
+    def post(self, request):
+        data = request.data if isinstance(request.data, dict) else {}
+        lines = data.get("lines") or []
         if not isinstance(lines, list) or not lines:
-            return Response({"detail": "Thiếu 'lines' (list các mã barcode)."}, status=400)
+            return Response({"detail": "Thiếu 'lines' (list barcode)."}, status=400)
 
-        # Giới hạn để tránh abuse
-        max_cnt = int(request.data.get("max") or 300)
-        if len(lines) > max_cnt:
-            return Response({"detail": f"Số lượng vượt giới hạn {max_cnt}."}, status=400)
+        # Loại trùng, giữ thứ tự
+        seen = set()
+        codes = []
+        for raw in lines:
+            s = str(raw).strip()
+            if not s:
+                continue
+            if s not in seen:
+                seen.add(s)
+                codes.append(s)
 
-        # Thư mục output cơ bản (nếu muốn lưu ra đĩa). Dù sao trả về zip theo memory.
-        out_dir_rel = (request.data.get("out_dir") or "").strip()
-        if out_dir_rel:
-            base_out_dir = Path(settings.MEDIA_ROOT) / out_dir_rel
-        else:
-            base_out_dir = Path(settings.MEDIA_ROOT) / "labels" / "reprint"
+        # Tùy bạn muốn ràng buộc 15 số hay không; ở đây bật nhẹ regex 15 số
+        BARCODE_RE = re.compile(r"^\d{15}$")
 
-        base_out_dir.mkdir(parents=True, exist_ok=True)
+        # Thư mục batch
+        out_dir_rel = (data.get("out_dir") or "").strip() or "labels/reprint"
+        ts = timezone.localtime().strftime("%Y%m%d-%H%M%S")
+        batch_dir = MEDIA_ROOT / out_dir_rel / ts
+        batch_dir.mkdir(parents=True, exist_ok=True)
 
-        # Tạo zip trong RAM
-        now_str = timezone.localtime().strftime("%Y%m%d-%H%M%S")
-        zip_bytes = io.BytesIO()
+        # Sinh ảnh
+        total_ok = 0
         errors = []
 
-        # Dùng temp dir để sinh các PNG trước khi nhét vào zip
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir_p = Path(tmpdir)
-            added = 0
+        for code in codes:
+            if not BARCODE_RE.match(code):
+                errors.append(f"INVALID_FORMAT: {code}")
+                continue
 
-            for raw in lines:
-                code = str(raw).strip()
-                if not BARCODE_RE.match(code):
-                    errors.append(f"INVALID_FORMAT: {code}")
-                    continue
+            # lấy title nếu có
+            title = ""
+            try:
+                it = Item.objects.select_related("product").filter(barcode_text=code).first()
+                if it and it.product and it.product.name:
+                    title = it.product.name
+            except Exception as e:
+                errors.append(f"LOOKUP_ERROR: {code}: {e}")
 
-                # Cố gắng tìm tên sản phẩm cho title
-                prod_title = ""
-                try:
-                    it = Item.objects.select_related("product").filter(barcode_text=code).first()
-                    if it and it.product:
-                        prod_title = it.product.name
-                except Exception as e:
-                    # Không chặn flow vì không tìm thấy
-                    errors.append(f"LOOKUP_ERROR: {code}: {e}")
+            try:
+                save_code128_png(code, title=title, out_dir=str(batch_dir))
+                total_ok += 1
+            except Exception as e:
+                errors.append(f"GEN_ERROR: {code}: {e}")
 
-                # Sinh ảnh PNG bằng util sẵn có (ghi vào tmpdir)
-                try:
-                    img_path = save_code128_png(code, title=prod_title, out_dir=str(tmpdir_p))
-                    # Ghi thêm một bản vào thư mục đích lâu dài (optional)
-                    try:
-                        dest = base_out_dir / Path(img_path).name
-                        Path(img_path).replace(dest)  # move từ tmp sang dest
-                        img_path = str(dest)
-                    except Exception:
-                        pass
+        if total_ok == 0:
+            return Response({"detail": "Không in được ảnh nào.", "errors": errors}, status=400)
 
-                    added += 1
-                except Exception as e:
-                    errors.append(f"GEN_ERROR: {code}: {e}")
-                    continue
+        # Đóng gói ZIP (trên đĩa)
+        zip_path = batch_dir / f"reprint-{ts}.zip"
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            # add toàn bộ *.png trong batch_dir
+            for p in batch_dir.glob("*.png"):
+                zf.write(p, arcname=p.name)
+            if errors:
+                zf.writestr("errors.txt", "\n".join(errors))
+            # manifest nhỏ
+            zf.writestr(
+                "MANIFEST.txt",
+                f"Reprint batch: {ts}\nFolder: {out_dir_rel}\nFiles: {total_ok}\nGenerated at: {timezone.localtime():%Y-%m-%d %H:%M:%S}\n"
+            )
 
-            # Đóng gói zip từ thư mục đích để có path ổn định
-            with zipfile.ZipFile(zip_bytes, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-                # Thêm tất cả .png vừa sinh trong base_out_dir có tên trùng với lines
-                # (an toàn hơn: chỉ add theo code)
-                for raw in lines:
-                    code = str(raw).strip()
-                    png_file = base_out_dir / f"{code}.png"
-                    if png_file.exists():
-                        # tên file trong zip: giữ phẳng
-                        zf.write(png_file, arcname=png_file.name)
-                # Nếu có lỗi, nhét kèm một file logs để bạn xem
-                if errors:
-                    zf.writestr("errors.txt", "\n".join(errors))
-
-        if added == 0:
-            return Response({"detail": "Không sinh được ảnh nào.", "errors": errors}, status=400)
-
-        zip_bytes.seek(0)
-        fname = f"barcodes-{now_str}.zip"
-        resp = FileResponse(zip_bytes, as_attachment=True, filename=fname, content_type="application/zip")
-        return resp
+        # Trả file
+        return FileResponse(open(zip_path, "rb"), as_attachment=True, filename=zip_path.name)
