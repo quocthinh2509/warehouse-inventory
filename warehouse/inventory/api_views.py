@@ -899,6 +899,7 @@ class ScanView(APIView):
             # Stateless scan: read all params from request body; session only stores last scanned list
             st = _scan_state(request)
             code = (request.data.get("barcode") or "").strip()
+            note_user = (request.data.get("note_user") or "").strip()
             affect_inv = _should_affect_inventory(request.data)
             if not code:
                 return Response({"detail": "Thiếu barcode."}, status=400)
