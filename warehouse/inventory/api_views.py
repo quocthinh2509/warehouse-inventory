@@ -861,6 +861,8 @@ class ScanView(APIView):
             wh_id = request.data.get("wh_id")
             wh = Warehouse.objects.filter(id=wh_id).first()
             tag_max = _tag_max_today(act, wh) + 1 if wh else 1
+            note_user = (request.data.get("note_user") or "").strip()
+
             try:
                 tag = int(request.data.get("tag") or tag_max)
             except (TypeError, ValueError):
@@ -872,6 +874,7 @@ class ScanView(APIView):
                 "type_action": request.data.get("action_type") or "",
                 "wh_id": wh.id if wh else None,
                 "tag": tag,
+                "note_user": note_user,
                 "started_at": timezone.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "scanned": [],
             }
@@ -934,7 +937,7 @@ class ScanView(APIView):
                     if item.warehouse:
                         logger.info("SCAN IN blocked: code=%s already in %s", code, item.warehouse.code if item.warehouse else None)
                         return Response({"detail":f"{code} đang ở {item.warehouse.code}."}, status=400)
-                    Move.objects.create(item=item, action="IN", to_wh=wh, type_action=type_action, tag=tag, note="IN (scan)")
+                    Move.objects.create(item=item, action="IN", to_wh=wh, type_action=type_action, tag=tag, note="IN (scan)", note_user = f". {note_user}" if note_user else "")
                     item.warehouse=wh; item.status="in_stock"; item.save(update_fields=["warehouse","status"])
                     if affect_inv:
                         adjust_inventory(item.product, wh, +1)
@@ -948,7 +951,7 @@ class ScanView(APIView):
                     if wh and item.warehouse != wh:
                         logger.info("SCAN OUT blocked: code=%s in %s but session wh=%s", code, item.warehouse.code if item.warehouse else None, wh.code if wh else None)
                         return Response({"detail":f"{code} đang ở {item.warehouse.code}, khác kho phiên ({wh.code})."}, status=400)
-                    Move.objects.create(item=item, action="OUT", from_wh=base_wh, type_action=type_action, tag=tag, note="OUT (scan)")
+                    Move.objects.create(item=item, action="OUT", from_wh=base_wh, type_action=type_action, tag=tag, note="OUT (scan)", note_user = f". {note_user}" if note_user else "")
                     adjust_inventory(item.product, base_wh, -1)
                     item.warehouse=None; item.status="shipped"; item.save(update_fields=["warehouse","status"])
                     msg=f"OUT {code}"

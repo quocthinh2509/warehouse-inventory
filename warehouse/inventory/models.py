@@ -160,6 +160,7 @@ class Move(models.Model):
     created_by     = models.ForeignKey('auth.User', null=True, blank=True, on_delete=models.SET_NULL)
     batch_id       = models.CharField(max_length=32, blank=True, db_index=True)
     duration_seconds = models.PositiveIntegerField(null=True, blank=True)
+    note_user = models.CharField(max_length=1000, blank=True, default="")  # ghi chú của người thao tác
 
     class Meta:
         ordering = ["-created_at"]
