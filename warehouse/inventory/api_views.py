@@ -861,7 +861,7 @@ class ScanView(APIView):
             wh_id = request.data.get("wh_id")
             wh = Warehouse.objects.filter(id=wh_id).first()
             tag_max = _tag_max_today(act, wh) + 1 if wh else 1
-            note_user = (request.data.get("note_user") or "").strip()
+            note_user = (request.data.get("note_user") or st.get("note_user") or "").strip()
 
             try:
                 tag = int(request.data.get("tag") or tag_max)
@@ -899,7 +899,7 @@ class ScanView(APIView):
             # Stateless scan: read all params from request body; session only stores last scanned list
             st = _scan_state(request)
             code = (request.data.get("barcode") or "").strip()
-            note_user = (request.data.get("note_user") or "").strip()
+            note_user = (request.data.get("note_user") or st.get("note_user") or "").strip()
             affect_inv = _should_affect_inventory(request.data)
             if not code:
                 return Response({"detail": "Thiếu barcode."}, status=400)
@@ -938,7 +938,7 @@ class ScanView(APIView):
                     if item.warehouse:
                         logger.info("SCAN IN blocked: code=%s already in %s", code, item.warehouse.code if item.warehouse else None)
                         return Response({"detail":f"{code} đang ở {item.warehouse.code}."}, status=400)
-                    Move.objects.create(item=item, action="IN", to_wh=wh, type_action=type_action, tag=tag, note="IN (scan)", note_user = f". {note_user}" if note_user else "")
+                    Move.objects.create(item=item, action="IN", to_wh=wh, type_action=type_action, tag=tag, note="IN (scan)", note_user=note_user)
                     item.warehouse=wh; item.status="in_stock"; item.save(update_fields=["warehouse","status"])
                     if affect_inv:
                         adjust_inventory(item.product, wh, +1)
@@ -952,7 +952,7 @@ class ScanView(APIView):
                     if wh and item.warehouse != wh:
                         logger.info("SCAN OUT blocked: code=%s in %s but session wh=%s", code, item.warehouse.code if item.warehouse else None, wh.code if wh else None)
                         return Response({"detail":f"{code} đang ở {item.warehouse.code}, khác kho phiên ({wh.code})."}, status=400)
-                    Move.objects.create(item=item, action="OUT", from_wh=base_wh, type_action=type_action, tag=tag, note="OUT (scan)", note_user = f". {note_user}" if note_user else "")
+                    Move.objects.create(item=item, action="OUT", from_wh=base_wh, type_action=type_action, tag=tag, note= "OUT (scan)", note_user=note_user)
                     adjust_inventory(item.product, base_wh, -1)
                     item.warehouse=None; item.status="shipped"; item.save(update_fields=["warehouse","status"])
                     msg=f"OUT {code}"

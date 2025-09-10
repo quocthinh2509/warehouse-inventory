@@ -61,12 +61,14 @@ class MoveSerializer(serializers.ModelSerializer):
         queryset=Warehouse.objects.all(), source="to_wh", write_only=True, required=False, allow_null=True
     )
 
+    note_user = serializers.CharField(required=False, allow_blank=True)
+
     class Meta:
         model = Move
         fields = [
             "id","created_at","action","item","item_id","product","product_id",
             "quantity","from_wh","from_wh_id","to_wh","to_wh_id",
-            "type_action","note","tag","batch_id"
+            "type_action","note","note_user","tag","batch_id"
         ]
         read_only_fields = ["created_at"]
 
