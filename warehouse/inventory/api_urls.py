@@ -5,7 +5,7 @@ from .api_views import (
     WarehouseViewSet, ProductViewSet, ItemViewSet,
     InventoryView, HistoryView, HistoryStatsView, HistoryUpdatesView,
     ManualBatchView, ScanView, GenerateLabelsView, BarcodeCheckView,
-    BulkOutBySkuView, BulkImportOrdersView,BatchTagSuggestAPI, BOMStocktakeView,
+    BulkOutBySkuView, BulkImportOrdersView,BatchTagSuggestAPI, BOMStocktakeView,ReprintBarcodesView,
 )
 
 router = DefaultRouter()
@@ -52,4 +52,5 @@ urlpatterns = [
     path("barcode/<str:barcode>", BarcodeCheckView.as_view(), name="api_barcode_check_slug"),
     path("batches/tag-suggest", BatchTagSuggestAPI.as_view(), name="api_batch_tag_suggest"),
     path("stocktake/bom", BOMStocktakeView.as_view(), name="stocktake-bom"),
+    path("barcodes/reprint", ReprintBarcodesView.as_view(), name="reprint-barcodes"),
 ]
