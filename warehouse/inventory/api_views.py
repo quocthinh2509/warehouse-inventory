@@ -1337,8 +1337,8 @@ class BOMStocktakeView(APIView):
         return Response(payload, status=200 if dry_run else 201)
 
 
-
 BARCODE_RE = re.compile(r"^\d{15}$")  # 4 + 6 + 5 theo quy ước
+
 class ReprintBarcodesView(APIView):
     """
     POST /api/barcodes/reprint
@@ -1372,9 +1372,6 @@ class ReprintBarcodesView(APIView):
             if s not in seen:
                 seen.add(s)
                 codes.append(s)
-
-        # Tùy bạn muốn ràng buộc 15 số hay không; ở đây bật nhẹ regex 15 số
-        BARCODE_RE = re.compile(r"^\d{15}$")
 
         # Thư mục batch
         out_dir_rel = (data.get("out_dir") or "").strip() or "labels/reprint"
@@ -1412,12 +1409,11 @@ class ReprintBarcodesView(APIView):
         # Đóng gói ZIP (trên đĩa)
         zip_path = batch_dir / f"reprint-{ts}.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            # add toàn bộ *.png trong batch_dir
-            for p in batch_dir.glob("*.png"):
-                zf.write(p, arcname=p.name)
+            # add toàn bộ *.png trong batch_dir và subfolder
+            for p in batch_dir.rglob("*.png"):
+                zf.write(p, arcname=str(p.relative_to(batch_dir)))
             if errors:
                 zf.writestr("errors.txt", "\n".join(errors))
-            # manifest nhỏ
             zf.writestr(
                 "MANIFEST.txt",
                 f"Reprint batch: {ts}\nFolder: {out_dir_rel}\nFiles: {total_ok}\nGenerated at: {timezone.localtime():%Y-%m-%d %H:%M:%S}\n"
