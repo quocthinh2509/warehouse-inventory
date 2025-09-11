@@ -965,6 +965,54 @@ class ScanView(APIView):
     def get(self, request):
         return Response(_scan_state(request))
 
+# # ---------- Generate labels API ----------
+# class GenerateLabelsView(APIView):
+#     """
+#     POST /api/generate/labels
+#     body:
+#     {
+#         "lines": [{"sku":"...","name":"...","qty":10,"import_date":"dd/mm/yyyy"}, ...]
+#     }
+#     -> tạo items + zip trả về file
+#     """
+#     permission_classes = [AllowAny]
+#     def post(self, request):
+#         lines = request.data.get("lines") or []
+#         if not isinstance(lines, list) or not lines:
+#             return Response({"detail":"Thiếu lines."}, status=400)
+
+#         batch_code = timezone.localtime().strftime("%Y%m%d-%H%M%S")
+#         batch_dir = MEDIA_ROOT / "labels" / batch_code
+#         batch_dir.mkdir(parents=True, exist_ok=True)
+
+#         from .utils import save_code128_png
+#         total_created = 0
+
+#         with transaction.atomic():
+#             for row in lines:
+#                 sku = (row.get("sku") or "").strip()
+#                 name = (row.get("name") or "").strip()
+#                 qty = int(row.get("qty") or 0)
+#                 imp = row.get("import_date") or ""
+#                 if not sku or qty<=0: continue
+#                 import_dt = datetime.strptime(imp, "%d/%m/%Y").date() if imp else None
+#                 product,_ = Product.objects.get_or_create(sku=sku, defaults={"name": name})
+#                 if name and product.name!=name:
+#                     product.name=name; product.save(update_fields=["name"])
+#                 sku_dir = batch_dir / sku; sku_dir.mkdir(exist_ok=True)
+#                 for _ in range(qty):
+#                     item = Item.objects.create(product=product, import_date=import_dt)
+#                     save_code128_png(item.barcode_text, product.name, out_dir=str(sku_dir))
+#                     total_created += 1
+
+#         zip_file = batch_dir / f"{batch_code}.zip"
+#         with zipfile.ZipFile(zip_file, "w", zipfile.ZIP_DEFLATED) as zf:
+#             for p in batch_dir.rglob("*.png"):
+#                 zf.write(p, arcname=str(p.relative_to(batch_dir)))
+#             zf.writestr("MANIFEST.txt",
+#                         f"Batch: {batch_code}\nGenerated: {timezone.localtime():%Y-%m-%d %H:%M:%S}\nFiles: {total_created}\n")
+
+#         return FileResponse(open(zip_file, "rb"), as_attachment=True, filename=f"{batch_code}.zip")
 # ---------- Generate labels API ----------
 class GenerateLabelsView(APIView):
     """
@@ -976,6 +1024,12 @@ class GenerateLabelsView(APIView):
     -> tạo items + zip trả về file
     """
     permission_classes = [AllowAny]
+
+    # helper: thay "/" thành Division Slash để an toàn tên file/thư mục
+    @staticmethod
+    def safe_filename(name: str) -> str:
+        return (name or "").replace("/", "∕")  # U+2215
+
     def post(self, request):
         lines = request.data.get("lines") or []
         if not isinstance(lines, list) or not lines:
@@ -994,14 +1048,26 @@ class GenerateLabelsView(APIView):
                 name = (row.get("name") or "").strip()
                 qty = int(row.get("qty") or 0)
                 imp = row.get("import_date") or ""
-                if not sku or qty<=0: continue
+                if not sku or qty <= 0:
+                    continue
+
                 import_dt = datetime.strptime(imp, "%d/%m/%Y").date() if imp else None
-                product,_ = Product.objects.get_or_create(sku=sku, defaults={"name": name})
-                if name and product.name!=name:
-                    product.name=name; product.save(update_fields=["name"])
-                sku_dir = batch_dir / sku; sku_dir.mkdir(exist_ok=True)
+
+                # Lưu SKU gốc trong DB (không thay đổi)
+                product, _ = Product.objects.get_or_create(sku=sku, defaults={"name": name})
+                if name and product.name != name:
+                    product.name = name
+                    product.save(update_fields=["name"])
+
+                # Chỉ khi tạo thư mục/filename mới cần "an toàn"
+                safe_sku_dirname = self.safe_filename(sku)
+                sku_dir = batch_dir / safe_sku_dirname
+                sku_dir.mkdir(exist_ok=True)
+
                 for _ in range(qty):
                     item = Item.objects.create(product=product, import_date=import_dt)
+                    # Barcode payload (item.barcode_text) vẫn giữ ký tự "/" gốc.
+                    # Hàm save_code128_png sẽ tự làm "an toàn" khi tạo tên file.
                     save_code128_png(item.barcode_text, product.name, out_dir=str(sku_dir))
                     total_created += 1
 
@@ -1009,8 +1075,10 @@ class GenerateLabelsView(APIView):
         with zipfile.ZipFile(zip_file, "w", zipfile.ZIP_DEFLATED) as zf:
             for p in batch_dir.rglob("*.png"):
                 zf.write(p, arcname=str(p.relative_to(batch_dir)))
-            zf.writestr("MANIFEST.txt",
-                        f"Batch: {batch_code}\nGenerated: {timezone.localtime():%Y-%m-%d %H:%M:%S}\nFiles: {total_created}\n")
+            zf.writestr(
+                "MANIFEST.txt",
+                f"Batch: {batch_code}\nGenerated: {timezone.localtime():%Y-%m-%d %H:%M:%S}\nFiles: {total_created}\n"
+            )
 
         return FileResponse(open(zip_file, "rb"), as_attachment=True, filename=f"{batch_code}.zip")
 
@@ -1337,6 +1405,7 @@ class BOMStocktakeView(APIView):
         return Response(payload, status=200 if dry_run else 201)
 
 
+# ---------- Reprint Barcodes (REST) ----------
 BARCODE_RE = re.compile(r"^\d{15}$")  # 4 + 6 + 5 theo quy ước
 
 class ReprintBarcodesView(APIView):
@@ -1356,6 +1425,26 @@ class ReprintBarcodesView(APIView):
     permission_classes = [AllowAny]
     parser_classes = [JSONParser]
 
+    @staticmethod
+    def _sanitize_relpath(p: str) -> Path:
+        """
+        Làm sạch đường dẫn tương đối do user cung cấp:
+        - Chuyển backslash -> slash
+        - Loại bỏ các segment rỗng, '.', '..'
+        - Chỉ cho phép [A-Za-z0-9._-] trong từng segment
+        """
+        p = (p or "").replace("\\", "/").strip().lstrip("/")  # bỏ leading slash
+        parts = []
+        for seg in p.split("/"):
+            seg = seg.strip()
+            if not seg or seg in {".", ".."}:
+                continue
+            # filter ký tự lạ để tránh lỗi FS và traversal lạ
+            clean = re.sub(r"[^A-Za-z0-9._-]", "_", seg)
+            if clean:
+                parts.append(clean)
+        return Path(*parts) if parts else Path("labels") / "reprint"
+
     def post(self, request):
         data = request.data if isinstance(request.data, dict) else {}
         lines = data.get("lines") or []
@@ -1373,10 +1462,15 @@ class ReprintBarcodesView(APIView):
                 seen.add(s)
                 codes.append(s)
 
-        # Thư mục batch
-        out_dir_rel = (data.get("out_dir") or "").strip() or "labels/reprint"
+        if not codes:
+            return Response({"detail": "Không có barcode hợp lệ trong 'lines'."}, status=400)
+
+        # Thư mục batch (an toàn)
+        out_dir_rel_raw = (data.get("out_dir") or "").strip()
+        out_dir_rel = self._sanitize_relpath(out_dir_rel_raw)
         ts = timezone.localtime().strftime("%Y%m%d-%H%M%S")
-        batch_dir = MEDIA_ROOT / out_dir_rel / ts
+        base_media = Path(settings.MEDIA_ROOT)  # ✅ dùng settings.MEDIA_ROOT
+        batch_dir = base_media / out_dir_rel / ts
         batch_dir.mkdir(parents=True, exist_ok=True)
 
         # Sinh ảnh
@@ -1388,7 +1482,7 @@ class ReprintBarcodesView(APIView):
                 errors.append(f"INVALID_FORMAT: {code}")
                 continue
 
-            # lấy title nếu có
+            # Lấy title nếu có (tên sản phẩm) – không ảnh hưởng tên file (đã safe trong utils)
             title = ""
             try:
                 it = Item.objects.select_related("product").filter(barcode_text=code).first()
@@ -1416,7 +1510,12 @@ class ReprintBarcodesView(APIView):
                 zf.writestr("errors.txt", "\n".join(errors))
             zf.writestr(
                 "MANIFEST.txt",
-                f"Reprint batch: {ts}\nFolder: {out_dir_rel}\nFiles: {total_ok}\nGenerated at: {timezone.localtime():%Y-%m-%d %H:%M:%S}\n"
+                (
+                    f"Reprint batch: {ts}\n"
+                    f"Folder: {out_dir_rel.as_posix()}\n"
+                    f"Files: {total_ok}\n"
+                    f"Generated at: {timezone.localtime():%Y-%m-%d %H:%M:%S}\n"
+                )
             )
 
         # Trả file
