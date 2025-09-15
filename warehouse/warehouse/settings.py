@@ -38,8 +38,9 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
-    'corsheaders',          # nếu cần gọi từ front-end khác domain
+   # 'corsheaders',          # nếu cần gọi từ front-end khác domain
     'inventory',
+    'checks',
     'api',
 ]
 

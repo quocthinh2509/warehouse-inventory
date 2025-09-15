@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Test GPS – Check-in/Check-out</title>
+  <style>
+    body { font-family: system-ui, Arial; margin: 14px; }
+    .card { border:1px solid #ddd; border-radius:12px; padding:14px; }
+    button { padding:12px 16px; border-radius:10px; border:0; font-size:16px; margin-right:8px; }
+    .ok{color:#0a7d00} .warn{color:#a86a00} .err{color:#b00020}
+    input{width:100%; padding:10px; border-radius:8px; border:1px solid #ccc}
+    .row{margin:8px 0}
+    pre { background:#f7f7f7; padding:10px; border-radius:8px; overflow:auto }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h3>Test lấy vị trí & lưu DB</h3>
+  <div id="status" class="warn">Đang lấy vị trí... (hãy bấm Allow)</div>
+
+  <div class="row">
+    <button id="btn-in" disabled>Check in</button>
+    <button id="btn-out" disabled>Check out</button>
+  </div>
+
+  <div class="row">
+    <label>Ghi chú (tuỳ chọn)</label>
+    <input id="note" placeholder="Ví dụ: tới công ty / về sớm"/>
+  </div>
+
+  <div class="row"><small id="gps"></small></div>
+
+  <div class="row">
+    <details>
+      <summary>Xem 20 bản ghi gần nhất</summary>
+      <pre id="recent">—</pre>
+    </details>
+  </div>
+</div>
+
+<script>
+const API_POST = "/api/checks/";
+const API_RECENT = "/api/checks/recent";
+let latestPos = null, bestAcc = Infinity;
+    
+    // ---- NEW: lấy CSRF từ cookie
+function getCookie(name){
+    const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+    return m ? m.pop() : '';
+}
+const csrftoken = getCookie('csrftoken');
+    // ---- END NEW
+    
+function setStatus(msg, cls=""){ const el = document.getElementById("status"); el.className = cls; el.textContent = msg; }
+function setGps(msg){ document.getElementById("gps").textContent = msg; }
+function enableButtons(on){ document.getElementById("btn-in").disabled = !on; document.getElementById("btn-out").disabled = !on; }
+    
+
+function startGeo(){
+  if(!navigator.geolocation){ setStatus("Thiết bị không hỗ trợ GPS.", "err"); return; }
+  navigator.geolocation.watchPosition(
+    pos => {
+      latestPos = pos;
+      const {latitude, longitude, accuracy} = pos.coords;
+      bestAcc = Math.min(bestAcc, accuracy || Infinity);
+      setGps(`Lat: ${latitude.toFixed(6)}, Lng: ${longitude.toFixed(6)}, accuracy: ~${Math.round(accuracy)}m`);
+      if(accuracy <= 80){ setStatus("GPS tốt, có thể chấm công.", "ok"); enableButtons(true); }
+      else { setStatus("GPS chưa tốt (accuracy>80m), đợi thêm 5–10s.", "warn"); }
+    },
+    err => { setStatus("Không lấy được vị trí: "+err.message, "err"); enableButtons(false); },
+    { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
+  );
+  setTimeout(()=>{ if(latestPos) enableButtons(true); }, 12000); // fallback 12s
+}
+
+async function send(type){
+  if(!latestPos){ setStatus("Chưa có vị trí GPS.", "err"); return; }
+  enableButtons(false); setStatus(`Đang gửi ${type}...`, "warn");
+  const payload = {
+    type,
+    lat: latestPos.coords.latitude,
+    lng: latestPos.coords.longitude,
+    accuracy: latestPos.coords.accuracy,
+    note: document.getElementById("note").value || ""
+  };
+  try{
+    const res = await fetch(API_POST, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if(res.ok){ setStatus(`Đã lưu: #${data.id} (${data.type}) @ ${data.ts}`, "ok"); }
+    else { setStatus("Lỗi: "+(data.detail || res.status), "err"); }
+  }catch(e){ setStatus("Mạng lỗi: "+e.message, "err"); }
+  finally { enableButtons(true); refreshRecent(); }
+}
+
+async function refreshRecent(){
+  try{
+    const res = await fetch(API_RECENT);
+    const data = await res.json();
+    document.getElementById("recent").textContent = JSON.stringify(data, null, 2);
+  }catch(e){
+    document.getElementById("recent").textContent = "Không load được: "+e.message;
+  }
+}
+
+async function send(type){
+    if(!latestPos){ setStatus("Chưa có vị trí GPS.", "err"); return; }
+    enableButtons(false); setStatus(`Đang gửi ${type}...`, "warn");
+    const payload = {
+      type,
+      lat: latestPos.coords.latitude,
+      lng: latestPos.coords.longitude,
+      accuracy: latestPos.coords.accuracy,
+      note: document.getElementById("note").value || ""
+    };
+    try{
+      const res = await fetch(API_POST, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrftoken,              // <-- NEW
+        },
+        credentials: "same-origin",              // <-- NEW: gửi kèm cookie
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if(res.ok){ setStatus(`Đã lưu: #${data.id} (${data.type}) @ ${data.ts}`, "ok"); }
+      else { setStatus("Lỗi: " + (data.detail || res.status), "err"); }
+    }catch(e){
+      setStatus("Mạng lỗi: " + e.message, "err");
+    }finally{
+      enableButtons(true); refreshRecent();
+    }
+  }
+document.getElementById("btn-in").addEventListener("click", ()=>send("IN"));
+document.getElementById("btn-out").addEventListener("click", ()=>send("OUT"));
+startGeo();
+refreshRecent();
+</script>
+</body>
+</html>
