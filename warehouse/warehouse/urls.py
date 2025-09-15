@@ -22,7 +22,6 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import RedirectView
 from inventory import views
-from checks.views import test_page, CheckCreateView, CheckRecentView
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/", include("inventory.api_urls")),
@@ -133,10 +132,5 @@ urlpatterns = [
     path("queries/", views.query_panel, name="query_panel"),
     path("queries/<int:pk>/", views.query_panel, name="query_panel_edit"),
 
-    path("test", test_page),
-    path("api/checks/", CheckCreateView.as_view()),  # POST ghi dữ liệu
-    path("api/checks/recent", CheckRecentView.as_view()),  # GET xem log
-
-
-
+    path("erp/", include("checks.urls")),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
