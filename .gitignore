@@ -4,3 +4,4 @@ __pycache__/
 *.log 
 staticfiles/ 
 media/ 
+warehouse/inventory/v1

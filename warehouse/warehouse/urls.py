@@ -131,6 +131,9 @@ urlpatterns = [
     # Query Panel
     path("queries/", views.query_panel, name="query_panel"),
     path("queries/<int:pk>/", views.query_panel, name="query_panel_edit"),
+    
 
-    path("erp/", include("checks.urls")),
+    path('erp/api/', include('erp.urls')),  # API của ERP
+    path('erp/', include('erp.frontend_urls')),
+    path("erp1/", include("checks.urls")),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

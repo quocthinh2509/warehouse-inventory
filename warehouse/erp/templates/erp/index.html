@@ -1,0 +1,21 @@
+{% load static %}
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <title>ERP Test Frontend</title>
+  <link rel="stylesheet" href="{% static 'erp/styles.css' %}" />
+</head>
+<body>
+  <main class="container">
+    <h1>ERP Test Frontend</h1>
+    <p>Chọn trang để test API Django ERP:</p>
+    <ul>
+      <li><a href="{% url 'erp_hr_page' %}">HR — Departments / Worksites / Shifts / Employees</a></li>
+      <li><a href="{% url 'erp_attendance_page' %}">Attendance — Check-in / Check-out / Recent</a></li>
+      <li><a href="{% url 'erp_leave_page' %}">Leave — Types / Requests</a></li>
+      <li><a href="{% url 'erp_payroll_page' %}">Payroll — Periods / Preview / Lines</a></li>
+    </ul>
+  </main>
+</body>
+</html>

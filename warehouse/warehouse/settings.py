@@ -41,6 +41,7 @@ INSTALLED_APPS = [
    # 'corsheaders',          # nếu cần gọi từ front-end khác domain
     'inventory',
     'checks',
+    'erp',
     'api',
 ]
 

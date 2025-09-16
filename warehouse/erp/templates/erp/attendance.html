@@ -1,0 +1,90 @@
+{% load static %}
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <title>Attendance — ERP Test</title>
+  <link rel="stylesheet" href="{% static 'erp/styles.css' %}" />
+</head>
+<body>
+  <main class="container">
+    <div class="row" style="justify-content:space-between; align-items:center">
+      <h1>Attendance</h1>
+      <form id="baseurl-form" class="row" style="gap:8px; min-width:360px">
+        <input name="base_url" placeholder="http://127.0.0.1:8000/erp/api" />
+        <button class="primary" type="submit">Save base_url</button>
+      </form>
+    </div>
+
+    <section class="card">
+      <h2>Check-in / Check-out</h2>
+      <form id="f-check">
+        <div class="grid grid-3">
+          <div><label>Employee ID</label><input id="employee_id" name="employee_id" value="1" required /></div>
+          <div><label>Worksite ID</label><input id="worksite_id" name="worksite_id" value="1" required /></div>
+          <div><label>Kind</label>
+            <select name="kind"><option value="in">in</option><option value="out">out</option></select>
+          </div>
+        </div>
+        <div class="grid grid-3">
+          <div><label>Lat</label><input id="lat" name="lat" placeholder="10.780000" /></div>
+          <div><label>Lng</label><input id="lng" name="lng" placeholder="106.700000" /></div>
+          <div><label>Accuracy (m)</label><input id="accuracy" name="accuracy_m" placeholder="50" /></div>
+        </div>
+        <div class="grid grid-3">
+          <div><label>Method</label>
+            <select name="method"><option>web</option><option>mobile</option><option>lark</option><option>api</option></select>
+          </div>
+          <div class="row"><button type="button" id="btn-geo">Lấy vị trí hiện tại</button></div>
+          <div><label>Ghi chú</label><input name="note_user" placeholder="Đến đúng giờ" /></div>
+        </div>
+        <div class="row" style="justify-content:flex-end">
+          <button class="primary">Gửi</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Recent (7 ngày)</h2>
+      <div class="row" style="gap:8px">
+        <input id="empFilter" placeholder="employee_id" value="1" style="max-width:160px" />
+        <input id="daysFilter" placeholder="days" value="7" style="max-width:120px" />
+        <button id="btn-load">Load</button>
+      </div>
+      <table class="table" id="tbl"></table>
+    </section>
+  </main>
+  <div class="toast"></div>
+  <script type="module">
+    import { fetchJSON, setFormHandlers, formToJSON, setBaseUrlForm, geolocate } from "{% static 'erp/app.js' %}";
+    setBaseUrlForm('#baseurl-form');
+
+    document.getElementById('btn-geo').addEventListener('click', ()=>{
+      geolocate({ latSel:'#lat', lngSel:'#lng', accSel:'#accuracy' });
+    });
+
+    setFormHandlers('#f-check', async fd=>{
+      const body = formToJSON(fd);
+      ['employee_id','worksite_id'].forEach(k=> body[k] = parseInt(body[k],10));
+      if (body.accuracy_m) body.accuracy_m = parseInt(body.accuracy_m,10);
+      const res = await fetchJSON('/attendance/check', { method:'POST', body: JSON.stringify(body) });
+      alert('OK: '+JSON.stringify(res));
+    });
+
+    async function loadRecent(){
+      const emp = document.getElementById('empFilter').value || '';
+      const days = document.getElementById('daysFilter').value || '7';
+      const res = await fetchJSON(`/attendance/recent?employee_id=${emp}&days=${days}`);
+      const rows = (res.results||res).map(r=>[
+        r.id, r.employee_name||r.employee, r.worksite_name||r.worksite, r.check_in_at, r.check_out_at, r.accuracy_m, r.method, r.note_user
+      ]);
+      const th = ['ID','Employee','Worksite','Check-in','Check-out','Accuracy','Method','Note'];
+      const html = `<thead><tr>${th.map(h=>`<th>${h}</th>`).join('')}</tr></thead>`+
+        `<tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c??''}</td>`).join('')}</tr>`).join('')}</tbody>`;
+      document.getElementById('tbl').innerHTML = html;
+    }
+    document.getElementById('btn-load').addEventListener('click', loadRecent);
+    loadRecent();
+  </script>
+</body>
+</html>
