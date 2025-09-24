@@ -187,3 +187,4 @@ AGENTS = {
     "office-01": {"hmac_secret": os.getenv("AGENT_office_01_SECRET", "replace_with_strong_secret")},
 }
 
+MAC_SECRET_TOKEN ='THE20@2025'
