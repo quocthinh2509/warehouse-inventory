@@ -1,0 +1,75 @@
+{% extends "erp_the20/base.html" %}
+{% block title %}Tổng quan hệ thống{% endblock %}
+{% block content %}
+  <h4 class="mb-3">Tổng quan hệ thống</h4>
+  <p class="text-muted">Thống kê tổng quan về nhân sự và hoạt động hôm nay</p>
+
+  <div class="row g-3">
+    <div class="col-md-3">
+      <div class="card h-100"><div class="card-body text-center">
+        <div class="text-muted">Tổng nhân viên</div>
+        <div class="display-5 fw-bold" id="statTotalEmployees">0</div>
+      </div></div>
+    </div>
+    <div class="col-md-3">
+      <div class="card h-100"><div class="card-body text-center">
+        <div class="text-muted">Có mặt hôm nay</div>
+        <div class="display-5 fw-bold" id="statPresentToday">0</div>
+      </div></div>
+    </div>
+    <div class="col-md-3">
+      <div class="card h-100"><div class="card-body text-center">
+        <div class="text-muted">Ca đang hoạt động</div>
+        <div class="display-5 fw-bold" id="statActiveShifts">0</div>
+      </div></div>
+    </div>
+    <div class="col-md-3">
+      <div class="card h-100"><div class="card-body text-center">
+        <div class="text-muted">Đơn chờ duyệt</div>
+        <div class="display-5 fw-bold" id="statPending">0</div>
+      </div></div>
+    </div>
+  </div>
+
+  <div class="row g-3 mt-2">
+    <div class="col-lg-6">
+      <div class="card h-100">
+        <div class="card-header">Hoạt động gần đây</div>
+        <ul class="list-group list-group-flush" id="recentActivities"></ul>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="card h-100">
+        <div class="card-header">Thống kê theo phòng ban</div>
+        <div class="card-body">
+          <div id="deptStats"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async function loadDashboard(){
+  try{
+    const data = await api("/dashboard/");
+    document.getElementById("statTotalEmployees").textContent = data.total_employees ?? 0;
+    document.getElementById("statPresentToday").textContent = data.present_today ?? 0;
+    document.getElementById("statActiveShifts").textContent = data.active_shifts ?? 0;
+    document.getElementById("statPending").textContent = data.pending_requests ?? 0;
+
+    const ul = document.getElementById("recentActivities");
+    ul.innerHTML = (data.recent || []).map(x => `<li class="list-group-item">${x}</li>`).join("");
+
+    const wrap = document.getElementById("deptStats");
+    wrap.innerHTML = (data.departments || []).map(d => {
+      const pct = d.total ? Math.round((d.present/d.total)*100) : 0;
+      return `<div class="mb-2">
+        <div class="d-flex justify-content-between"><strong>${d.name}</strong><span>${d.present}/${d.total} (${pct}%)</span></div>
+        <div class="progress"><div class="progress-bar" role="progressbar" style="width:${pct}%"></div></div>
+      </div>`;
+    }).join("");
+  }catch(e){ toast(e.message,"error"); }
+})();
+</script>
+{% endblock %}

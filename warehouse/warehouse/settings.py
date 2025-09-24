@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -40,9 +41,10 @@ INSTALLED_APPS = [
     'rest_framework',
    # 'corsheaders',          # nếu cần gọi từ front-end khác domain
     'inventory',
-    'checks',
-    'erp',
+    'drf_spectacular',
+    'erp_the20',
     'api',
+    'attendance',
 ]
 
 MIDDLEWARE = [
@@ -151,6 +153,7 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 50,
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
 CORS_ALLOW_ALL_ORIGINS = True
@@ -167,3 +170,20 @@ LOGGING = {
         "inventory": {"handlers": ["console"], "level": "INFO"},
     },
 }
+
+
+
+
+CACHES ={
+    "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+}
+
+JWT_SECRET = os.getenv("JWT_SECRET", "replace_with_strong_server_secret")
+JWT_ALGO = "HS256"
+LOCAL_ACCESS_TTL = int(os.getenv("LOCAL_ACCESS_TTL", "180"))  # 3 phút
+
+# Khai báo các agent hợp lệ và secret HMAC tương ứng (trùng với agent.py)
+AGENTS = {
+    "office-01": {"hmac_secret": os.getenv("AGENT_office_01_SECRET", "replace_with_strong_secret")},
+}
+

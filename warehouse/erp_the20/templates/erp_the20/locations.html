@@ -1,0 +1,90 @@
+{% extends "erp_the20/base.html" %}
+{% block title %}Địa điểm làm việc{% endblock %}
+{% block content %}
+  <div class="d-flex align-items-center mb-3">
+    <h4 class="mb-0">Địa điểm làm việc</h4>
+    <button class="btn btn-primary ms-auto" data-bs-toggle="modal" data-bs-target="#modalLoc">+ Thêm địa điểm</button>
+  </div>
+  <div class="card">
+    <div class="card-body p-0">
+      <table class="table table-hover mb-0">
+        <thead class="table-light"><tr>
+          <th>Tên</th><th>Địa chỉ</th><th>Bán kính (m)</th>
+          <th>Grace In</th><th>Grace Out</th><th>Trạng thái</th><th style="width:120px">Thao tác</th>
+        </tr></thead>
+        <tbody id="locTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalLoc" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <form id="locForm">
+          <div class="modal-header"><h5 class="modal-title">Địa điểm</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" name="id" />
+            <div class="mb-3"><label class="form-label">Tên</label><input name="name" class="form-control" required /></div>
+            <div class="mb-3"><label class="form-label">Địa chỉ</label><input name="address" class="form-control" required /></div>
+            <div class="row g-2">
+              <div class="col"><label class="form-label">Bán kính (m)</label><input type="number" name="radius" class="form-control" value="100" /></div>
+              <div class="col"><label class="form-label">Grace In (phút)</label><input type="number" name="grace_in" class="form-control" value="10" /></div>
+              <div class="col"><label class="form-label">Grace Out (phút)</label><input type="number" name="grace_out" class="form-control" value="10" /></div>
+            </div>
+            <div class="mt-3"><label class="form-label">Trạng thái</label>
+              <select name="status" class="form-select"><option value="active">Hoạt động</option><option value="inactive">Ngưng</option></select>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+            <button class="btn btn-primary" type="submit">Lưu</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+{% block scripts %}
+<script>
+let modalLoc;
+document.addEventListener("DOMContentLoaded", ()=>{
+  modalLoc = new bootstrap.Modal(document.getElementById('modalLoc'));
+});
+async function loadLocations(){
+  const items = await api("/worksites/");
+  document.getElementById("locTbody").innerHTML = items.map(x=>`
+    <tr>
+      <td>${x.name}</td><td>${x.address ?? ""}</td><td>${x.radius ?? ""}</td>
+      <td>${x.grace_in ?? ""}</td><td>${x.grace_out ?? ""}</td>
+      <td><span class="badge ${x.status==='active'?'bg-success':'bg-secondary'} badge-status">${x.status}</span></td>
+      <td>
+        <button class="btn btn-sm btn-outline-primary me-1" onclick='editLoc(${JSON.stringify(x)})'>Sửa</button>
+        <button class="btn btn-sm btn-outline-danger" onclick='removeLoc("${x.id}")'>Xóa</button>
+      </td>
+    </tr>`).join("");
+}
+function editLoc(x){
+  const f = document.getElementById("locForm");
+  f.id.value = x.id || ""; f.name.value = x.name || ""; f.address.value = x.address || "";
+  f.radius.value = x.radius ?? 100; f.grace_in.value = x.grace_in ?? 10; f.grace_out.value = x.grace_out ?? 10;
+  f.status.value = x.status || "active"; modalLoc.show();
+}
+document.getElementById("locForm").addEventListener("submit", async (e)=>{
+  e.preventDefault();
+  const f = e.target;
+  const payload = {name:f.name.value, address:f.address.value, radius:+f.radius.value, grace_in:+f.grace_in.value, grace_out:+f.grace_out.value, status:f.status.value};
+  try{
+    if (f.id.value) await api(`/worksites/${f.id.value}/`, {method:"PUT", body: JSON.stringify(payload)});
+    else await api("/worksites/", {method:"POST", body: JSON.stringify(payload)});
+    modalLoc.hide(); loadLocations(); toast("Lưu thành công","success");
+  }catch(err){ toast(err.message,"error"); }
+});
+async function removeLoc(id){
+  if(!confirm("Xóa địa điểm?")) return;
+  try{ await api(`/worksites/${id}/`, {method:"DELETE"}); loadLocations(); }catch(err){ toast(err.message,"error"); }
+}
+loadLocations();
+</script>
+{% endblock %}

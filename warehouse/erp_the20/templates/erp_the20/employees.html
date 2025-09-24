@@ -1,0 +1,98 @@
+{% extends "erp_the20/base.html" %}
+{% block title %}Nhân viên{% endblock %}
+{% block content %}
+  <div class="d-flex align-items-center mb-3">
+    <h4 class="mb-0">Nhân viên</h4>
+    <div class="ms-auto d-flex gap-2">
+      <input id="q" class="form-control" placeholder="Tìm theo tên / mã..." style="max-width:260px" oninput="loadEmployees(this.value)" />
+      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalEmp">+ Thêm nhân viên</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-body p-0">
+      <table class="table table-bordered mb-0">
+        <thead class="table-light"><tr>
+          <th>Mã NV</th><th>Họ và tên</th><th>Email</th><th>Phòng ban</th><th>Chức vụ</th><th>Địa điểm</th><th>Trạng thái</th><th style="width:120px">Thao tác</th>
+        </tr></thead>
+        <tbody id="empTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="modal fade" id="modalEmp" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <form id="empForm">
+          <div class="modal-header"><h5 class="modal-title">Nhân viên</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" name="id" />
+            <div class="row g-2">
+              <div class="col-md-3"><label class="form-label">Mã NV</label><input name="code" class="form-control" required /></div>
+              <div class="col-md-5"><label class="form-label">Họ và tên</label><input name="full_name" class="form-control" required /></div>
+              <div class="col-md-4"><label class="form-label">Email</label><input name="email" type="email" class="form-control" /></div>
+              <div class="col-md-4"><label class="form-label">Phòng ban</label><input name="department" class="form-control" /></div>
+              <div class="col-md-4"><label class="form-label">Chức vụ</label><input name="position" class="form-control" /></div>
+              <div class="col-md-4"><label class="form-label">Địa điểm</label><input name="worksite" class="form-control" /></div>
+              <div class="col-md-4"><label class="form-label">Trạng thái</label>
+                <select name="status" class="form-select"><option value="active">Hoạt động</option><option value="inactive">Ngưng</option></select>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+            <button class="btn btn-primary" type="submit">Lưu</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+{% block scripts %}
+<script>
+let modalEmp;
+document.addEventListener("DOMContentLoaded", ()=>{
+  modalEmp = new bootstrap.Modal(document.getElementById('modalEmp'));
+});
+async function loadEmployees(q=""){
+  const params = q ? `?search=${encodeURIComponent(q)}` : "";
+  const items = await api(`/employees/${params}`);
+  document.getElementById("empTbody").innerHTML = items.map(x=>`
+    <tr>
+      <td>${x.code}</td><td>${x.full_name}</td><td>${x.email ?? ""}</td>
+      <td>${x.department ?? ""}</td><td>${x.position ?? ""}</td><td>${x.worksite ?? ""}</td>
+      <td><span class="badge ${x.status==='active'?'bg-success':'bg-secondary'} badge-status">${x.status}</span></td>
+      <td>
+        <button class="btn btn-sm btn-outline-primary me-1" onclick='editEmp(${JSON.stringify(x)})'>Sửa</button>
+        <button class="btn btn-sm btn-outline-danger" onclick='removeEmp("${x.id}")'>Xóa</button>
+      </td>
+    </tr>`).join("");
+}
+function editEmp(x){
+  const f = document.getElementById("empForm");
+  f.id.value = x.id || ""; f.code.value = x.code || ""; f.full_name.value = x.full_name || "";
+  f.email.value = x.email || ""; f.department.value = x.department || ""; f.position.value = x.position || "";
+  f.worksite.value = x.worksite || ""; f.status.value = x.status || "active"; modalEmp.show();
+}
+document.getElementById("empForm").addEventListener("submit", async (e)=>{
+  e.preventDefault();
+  const f = e.target;
+  const payload = {
+    code:f.code.value, full_name:f.full_name.value, email:f.email.value || null,
+    department:f.department.value || null, position:f.position.value || null, default_worksite:f.worksite.value || null,
+    status:f.status.value
+  };
+  try{
+    if (f.id.value) await api(`/employees/${f.id.value}/`, {method:"PUT", body: JSON.stringify(payload)});
+    else await api("/employees/", {method:"POST", body: JSON.stringify(payload)});
+    modalEmp.hide(); loadEmployees(); toast("Lưu thành công","success");
+  }catch(err){ toast(err.message,"error"); }
+});
+async function removeEmp(id){
+  if(!confirm("Xóa nhân viên?")) return;
+  try{ await api(`/employees/${id}/`, {method:"DELETE"}); loadEmployees(); }catch(err){ toast(err.message,"error"); }
+}
+loadEmployees();
+</script>
+{% endblock %}

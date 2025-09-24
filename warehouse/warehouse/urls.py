@@ -21,6 +21,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import RedirectView
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 from inventory import views
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -132,8 +133,10 @@ urlpatterns = [
     path("queries/", views.query_panel, name="query_panel"),
     path("queries/<int:pk>/", views.query_panel, name="query_panel_edit"),
     
+    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+    path('the20/', include('erp_the20.urls')),
+    path('ui/',include('attendance.urls')),
 
-    path('erp/api/', include('erp.urls')),  # API của ERP
-    path('erp/', include('erp.frontend_urls')),
-    path("erp1/", include("checks.urls")),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
