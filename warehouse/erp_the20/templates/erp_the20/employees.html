@@ -12,7 +12,7 @@
     <div class="card-body p-0">
       <table class="table table-bordered mb-0">
         <thead class="table-light"><tr>
-          <th>Mã NV</th><th>Họ và tên</th><th>Email</th><th>Phòng ban</th><th>Chức vụ</th><th>Địa điểm</th><th>Trạng thái</th><th style="width:120px">Thao tác</th>
+          <th>Mã NV</th><th>Họ và tên</th><th>Email</th><th>Phòng ban</th><th>Chức vụ</th><th>Trạng thái</th><th style="width:120px">Thao tác</th>
         </tr></thead>
         <tbody id="empTbody"></tbody>
       </table>
@@ -34,7 +34,6 @@
               <div class="col-md-4"><label class="form-label">Email</label><input name="email" type="email" class="form-control" /></div>
               <div class="col-md-4"><label class="form-label">Phòng ban</label><input name="department" class="form-control" /></div>
               <div class="col-md-4"><label class="form-label">Chức vụ</label><input name="position" class="form-control" /></div>
-              <div class="col-md-4"><label class="form-label">Địa điểm</label><input name="worksite" class="form-control" /></div>
               <div class="col-md-4"><label class="form-label">Trạng thái</label>
                 <select name="status" class="form-select"><option value="active">Hoạt động</option><option value="inactive">Ngưng</option></select>
               </div>
@@ -61,7 +60,7 @@ async function loadEmployees(q=""){
   document.getElementById("empTbody").innerHTML = items.map(x=>`
     <tr>
       <td>${x.code}</td><td>${x.full_name}</td><td>${x.email ?? ""}</td>
-      <td>${x.department ?? ""}</td><td>${x.position ?? ""}</td><td>${x.worksite ?? ""}</td>
+      <td>${x.department ?? ""}</td><td>${x.position ?? ""}}</td>
       <td><span class="badge ${x.status==='active'?'bg-success':'bg-secondary'} badge-status">${x.status}</span></td>
       <td>
         <button class="btn btn-sm btn-outline-primary me-1" onclick='editEmp(${JSON.stringify(x)})'>Sửa</button>
@@ -72,15 +71,14 @@ async function loadEmployees(q=""){
 function editEmp(x){
   const f = document.getElementById("empForm");
   f.id.value = x.id || ""; f.code.value = x.code || ""; f.full_name.value = x.full_name || "";
-  f.email.value = x.email || ""; f.department.value = x.department || ""; f.position.value = x.position || "";
-  f.worksite.value = x.worksite || ""; f.status.value = x.status || "active"; modalEmp.show();
+  f.email.value = x.email || ""; f.department.value = x.department || ""; f.position.value = x.position || ""; f.status.value = x.status || "active"; modalEmp.show();
 }
 document.getElementById("empForm").addEventListener("submit", async (e)=>{
   e.preventDefault();
   const f = e.target;
   const payload = {
     code:f.code.value, full_name:f.full_name.value, email:f.email.value || null,
-    department:f.department.value || null, position:f.position.value || null, default_worksite:f.worksite.value || null,
+    department:f.department.value || null, position:f.position.value || null,
     status:f.status.value
   };
   try{

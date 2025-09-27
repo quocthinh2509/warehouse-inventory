@@ -1,24 +1,30 @@
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from drf_spectacular.utils import OpenApiParameter
 
-from erp_the20.serializers.employee_serializer import (
-    EmployeeReadSerializer,   # dùng cho RESPONSE
-    EmployeeWriteSerializer,  # dùng cho REQUEST
-)
+
+from erp_the20.serializers.employee_serializer import EmployeeReadSerializer, EmployeeWriteSerializer
 from erp_the20.services.employee_service import (
-    create_employee, deactivate_employee, activate_employee,
-    update_employee, delete_employee
+    create_employee,
+    update_employee,
+    delete_employee,
+    activate_employee,
+    deactivate_employee,
 )
 from erp_the20.selectors.employee_selector import (
-    list_active_employees, get_employee_by_id, list_all_employees
+    get_employee_by_id,
+    list_all_employees,
+    list_active_employees,
+    get_employee_by_code,
+    get_employee_by_user_name,
 )
 from .utils import extend_schema, extend_schema_view, OpenApiResponse, path_int, std_errors
 
 
-# -----------------------------
-# /api/employees/  (GET list + POST create)
-# -----------------------------
+# ==============================================================
+# /api/employees/  -> GET list all + POST create
+# ==============================================================
 @extend_schema_view(
     get=extend_schema(
         tags=["Employee"],
@@ -28,135 +34,186 @@ from .utils import extend_schema, extend_schema_view, OpenApiResponse, path_int,
     post=extend_schema(
         tags=["Employee"],
         summary="Create employee / Tạo nhân viên",
-        request=EmployeeWriteSerializer,                               # <-- REQUEST = Write
-        responses={201: OpenApiResponse(EmployeeReadSerializer),       # <-- RESPONSE = Read
-                   **std_errors()},
+        request=EmployeeWriteSerializer,               # Input
+        responses={201: OpenApiResponse(EmployeeReadSerializer), **std_errors()},  # Output
     ),
 )
 class EmployeeListCreateView(APIView):
-    """GET: danh sách nhân viên; POST: tạo nhân viên (qua service)."""
+    """
+    GET: Trả về danh sách tất cả nhân viên (cả active và inactive)
+    POST: Tạo nhân viên mới, sử dụng service layer để xử lý business logic
+    """
 
     def get(self, request):
+        # 1. Lấy tất cả nhân viên từ selector
         employees = list_all_employees()
-        return Response(EmployeeReadSerializer(employees, many=True).data)
+        # 2. Serialize dữ liệu để trả về API
+        data = EmployeeReadSerializer(employees, many=True).data
+        return Response(data)
 
     def post(self, request):
-        ser = EmployeeWriteSerializer(data=request.data)               # validate input theo *_id
-        ser.is_valid(raise_exception=True)
-        emp = create_employee(ser.validated_data)
-        return Response(EmployeeReadSerializer(emp).data, status=status.HTTP_201_CREATED)
+        # 1. Validate dữ liệu đầu vào với EmployeeWriteSerializer
+        serializer = EmployeeWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # 2. Tạo nhân viên mới bằng service
+        employee = create_employee(serializer.validated_data)
+
+        # 3. Trả về dữ liệu employee theo ReadSerializer
+        return Response(EmployeeReadSerializer(employee).data, status=status.HTTP_201_CREATED)
 
 
-# -----------------------------
-# /api/employees/<pk>/deactivate  (POST)
-# -----------------------------
-@extend_schema_view(
-    post=extend_schema(
-        tags=["Employee"],
-        summary="Deactivate employee",
-        parameters=[path_int("pk", "Employee ID")],
-        responses={200: OpenApiResponse(EmployeeReadSerializer), **std_errors()},
-    )
-)
-class EmployeeDeactivateView(APIView):
-    """POST: deactivate nhân viên theo pk."""
-
-    def post(self, request, pk: int):
-        emp = get_employee_by_id(pk)
-        if not emp:
-            return Response({"detail": "Employee not found"}, status=status.HTTP_404_NOT_FOUND)
-        emp = deactivate_employee(emp)
-        return Response(EmployeeReadSerializer(emp).data)
-
-
-# -----------------------------
-# /api/employees/<pk>/activate  (POST)
-# -----------------------------
-@extend_schema_view(
-    post=extend_schema(
-        tags=["Employee"],
-        summary="Activate employee",
-        parameters=[path_int("pk", "Employee ID")],
-        responses={200: OpenApiResponse(EmployeeReadSerializer), **std_errors()},
-    )
-)
-class EmployeeActivateView(APIView):
-    """POST: activate nhân viên theo pk."""
-
-    def post(self, request, pk: int):
-        emp = get_employee_by_id(pk)
-        if not emp:
-            return Response({"detail": "Employee not found"}, status=status.HTTP_404_NOT_FOUND)
-        emp = activate_employee(emp)
-        return Response(EmployeeReadSerializer(emp).data)
-
-
-# -----------------------------
-# /api/employees/<pk>/  (GET retrieve + PUT update + DELETE)
-# -----------------------------
+# ==============================================================
+# /api/employees/<pk>/  -> GET detail + PUT update + DELETE
+# ==============================================================
 @extend_schema_view(
     get=extend_schema(
         tags=["Employee"],
-        summary="Get employee details",
+        summary="Get employee details / Lấy thông tin nhân viên theo ID",
         parameters=[path_int("pk", "Employee ID")],
         responses={200: OpenApiResponse(EmployeeReadSerializer), **std_errors()},
     ),
     put=extend_schema(
         tags=["Employee"],
-        summary="Update employee",
+        summary="Update employee / Cập nhật nhân viên",
         parameters=[path_int("pk", "Employee ID")],
-        request=EmployeeWriteSerializer,                               # <-- REQUEST = Write
-        responses={200: OpenApiResponse(EmployeeReadSerializer), **std_errors()},  # <-- RESPONSE = Read
+        request=EmployeeWriteSerializer,
+        responses={200: OpenApiResponse(EmployeeReadSerializer), **std_errors()},
     ),
     delete=extend_schema(
         tags=["Employee"],
-        summary="Delete employee",
+        summary="Delete employee / Xóa nhân viên",
         parameters=[path_int("pk", "Employee ID")],
-        responses={204: OpenApiResponse(None), **std_errors()},
+        responses={204: OpenApiResponse(None, description="Deleted"), **std_errors()},
     ),
 )
 class EmployeeDetailView(APIView):
-    """GET: chi tiết; PUT: cập nhật; DELETE: xoá mềm/cứng tuỳ service."""
+    """
+    GET: Trả về chi tiết nhân viên theo ID
+    PUT: Cập nhật thông tin nhân viên
+    DELETE: Xóa nhân viên (hard delete)
+    """
 
     def get(self, request, pk: int):
-        emp = get_employee_by_id(pk)
-        if not emp:
+        employee = get_employee_by_id(pk)
+        if not employee:
             return Response({"detail": "Employee not found"}, status=status.HTTP_404_NOT_FOUND)
-        return Response(EmployeeReadSerializer(emp).data)
+        return Response(EmployeeReadSerializer(employee).data)
 
     def put(self, request, pk: int):
-        emp = get_employee_by_id(pk)
-        if not emp:
+        employee = get_employee_by_id(pk)
+        if not employee:
             return Response({"detail": "Employee not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        # dùng WriteSerializer để nhận *_id (department_id, position_id, default_worksite_id)
-        ser = EmployeeWriteSerializer(data=request.data, partial=False)
-        ser.is_valid(raise_exception=True)
+        # Validate dữ liệu gửi lên
+        serializer = EmployeeWriteSerializer(instance=employee, data=request.data, partial=False)
+        serializer.is_valid(raise_exception=True)
 
-        emp = update_employee(emp, ser.validated_data)
-        return Response(EmployeeReadSerializer(emp).data)              # trả về Read
+        # Update employee qua service layer
+        updated_employee = update_employee(employee, serializer.validated_data)
+
+        return Response(EmployeeReadSerializer(updated_employee).data)
 
     def delete(self, request, pk: int):
-        emp = get_employee_by_id(pk)
-        if not emp:
+        employee = get_employee_by_id(pk)
+        if not employee:
             return Response({"detail": "Employee not found"}, status=status.HTTP_404_NOT_FOUND)
-        delete_employee(emp)
+
+        # Xóa nhân viên
+        delete_employee(employee)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-# -----------------------------
-# /api/employees/active/  (GET)
-# -----------------------------
+# ==============================================================
+# /api/employees/<pk>/deactivate  -> POST
+# ==============================================================
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Employee"],
+        summary="Deactivate employee / Vô hiệu hóa nhân viên",
+        parameters=[path_int("pk", "Employee ID")],
+        responses={200: OpenApiResponse(EmployeeReadSerializer), **std_errors()},
+    )
+)
+class EmployeeDeactivateView(APIView):
+    """
+    POST: Deactivate nhân viên (is_active=False)
+    """
+
+    def post(self, request, pk: int):
+        employee = get_employee_by_id(pk)
+        if not employee:
+            return Response({"detail": "Employee not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        employee = deactivate_employee(employee)
+        return Response(EmployeeReadSerializer(employee).data)
+
+
+# ==============================================================
+# /api/employees/<pk>/activate  -> POST
+# ==============================================================
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Employee"],
+        summary="Activate employee / Kích hoạt nhân viên",
+        parameters=[path_int("pk", "Employee ID")],
+        responses={200: OpenApiResponse(EmployeeReadSerializer), **std_errors()},
+    )
+)
+class EmployeeActivateView(APIView):
+    """
+    POST: Activate nhân viên (is_active=True)
+    """
+
+    def post(self, request, pk: int):
+        employee = get_employee_by_id(pk)
+        if not employee:
+            return Response({"detail": "Employee not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        employee = activate_employee(employee)
+        return Response(EmployeeReadSerializer(employee).data)
+
+
+# ==============================================================
+# /api/employees/active/  -> GET
+# ==============================================================
 @extend_schema_view(
     get=extend_schema(
         tags=["Employee"],
         summary="List active employees / Danh sách nhân viên đang hoạt động",
-        responses=OpenApiResponse(EmployeeReadSerializer(many=True)),  # <-- RESPONSE = Read (many)
-    ),
+        responses=OpenApiResponse(EmployeeReadSerializer(many=True)),
+    )
 )
 class ActiveEmployeeListView(APIView):
-    """GET: trả danh sách tất cả nhân viên đang hoạt động."""
+    """
+    GET: Trả về danh sách tất cả nhân viên đang hoạt động
+    """
 
     def get(self, request):
         employees = list_active_employees()
         return Response(EmployeeReadSerializer(employees, many=True).data)
+
+
+
+
+# ==============================================================
+# /api/employees/<user_name>/  -> GET employee by user_name
+# ==============================================================
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Employee"],
+        summary="Get employee by user_name / Lấy nhân viên theo user_name",
+        parameters=[OpenApiParameter(name="user_name", description="User Name", required=True, type=str)],
+        responses={200: OpenApiResponse(EmployeeReadSerializer), **std_errors()},
+    )
+)
+class EmployeeGetByUserNameView(APIView):
+    """
+    GET: Trả về chi tiết nhân viên theo user_name
+    """
+
+    def get(self, request, user_name: str):
+        employee = get_employee_by_user_name(user_name)
+        if not employee:
+            return Response({"detail": "Employee not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(EmployeeReadSerializer(employee).data)

@@ -1,126 +1,158 @@
-from datetime import datetime, timedelta
-from typing import Optional, Iterable
-from django.utils import timezone
-from django.db.models import QuerySet
+from django.db.models import Prefetch, Q, F
 from erp_the20.models import (
-    ShiftTemplate, ShiftInstance, ShiftAssignment, ShiftRegistration, Employee
+    ShiftTemplate,
+    ShiftInstance,
+    ShiftAssignment,
+    ShiftRegistration,
+    Employee,
 )
+from datetime import date
+from datetime import datetime, timedelta
 
-# ---- Employee ----
-def get_active_employee(emp_id: int) -> Optional[Employee]:
-    return Employee.objects.filter(id=emp_id, is_active=True).first()
 
-# ---- ShiftTemplate ----
-def list_shift_templates() -> QuerySet[ShiftTemplate]:
-    return (
-        ShiftTemplate.objects
-        .select_related("default_worksite")
-        .order_by("name")
-    )
+# ============================================================
+#  SHIFT TEMPLATE
+# ============================================================
 
-def reload_shift_template(pk: int) -> ShiftTemplate:
-    return (
-        ShiftTemplate.objects
-        .select_related("default_worksite")
-        .get(pk=pk)
-    )
+def get_shift_template(template_id: int) -> ShiftTemplate | None:
+    """Lấy 1 ShiftTemplate theo id."""
+    return ShiftTemplate.objects.filter(id=template_id).first()
 
-# ---- ShiftInstance ----
-def list_open_shift_instances(date_from=None, date_to=None, worksite_id: Optional[int]=None) -> QuerySet[ShiftInstance]:
-    qs = ShiftInstance.objects.filter(status="open")
+
+def list_shift_templates() -> list[ShiftTemplate]:
+    """Lấy toàn bộ ShiftTemplate."""
+    return ShiftTemplate.objects.all()
+
+
+# ============================================================
+#  SHIFT INSTANCE
+# ============================================================
+
+def get_shift_instance(instance_id: int) -> ShiftInstance | None:
+    """Lấy 1 ShiftInstance theo id."""
+    return ShiftInstance.objects.filter(id=instance_id).first()
+
+
+def list_shift_instances(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    status: str | None = None,
+) -> list[ShiftInstance]:
+    """
+    Lấy danh sách ShiftInstance, có filter theo ngày và status.
+    """
+    qs = ShiftInstance.objects.select_related("template").all()
+
     if date_from:
         qs = qs.filter(date__gte=date_from)
     if date_to:
         qs = qs.filter(date__lte=date_to)
-    if worksite_id:
-        qs = qs.filter(worksite_id=worksite_id)
-    # LƯU Ý: field thật là `template`, không phải `shift_template`
-    return qs.select_related("template__default_worksite", "worksite").order_by("date", "id")
+    if status:
+        qs = qs.filter(status=status)
 
-def reload_shift_instance(pk: int) -> ShiftInstance:
+    return qs
+
+
+# ============================================================
+#  SHIFT ASSIGNMENT
+# ============================================================
+
+def get_shift_assignment(assignment_id: int) -> ShiftAssignment | None:
+    """Lấy 1 ShiftAssignment theo id."""
     return (
-        ShiftInstance.objects
-        .select_related("template__default_worksite", "worksite")
-        .get(pk=pk)
-    )
-
-# ---- Đếm / lấy theo id (đang dùng trong services) ----
-def count_assignments(shift_instance_id: int) -> int:
-    return ShiftAssignment.objects.filter(shift_instance_id=shift_instance_id).count()
-
-def get_shift_instance(pk: int) -> Optional[ShiftInstance]:
-    return (
-        ShiftInstance.objects
-        .select_related("template", "worksite")
-        .filter(id=pk)
+        ShiftAssignment.objects.select_related("employee", "shift_instance")
+        .filter(id=assignment_id)
         .first()
     )
 
-# ---- Read lại để serialize đủ quan hệ ----
-def get_registration_with_related(pk: int) -> ShiftRegistration:
+
+def list_shift_assignments(employee_id: int | None = None, shift_instance_id: int | None = None) -> list[ShiftAssignment]:
+    """
+    Lấy danh sách ShiftAssignment, có filter theo employee hoặc shift_instance.
+    """
+    qs = ShiftAssignment.objects.select_related("employee", "shift_instance")
+
+    if employee_id:
+        qs = qs.filter(employee_id=employee_id)
+    if shift_instance_id:
+        qs = qs.filter(shift_instance_id=shift_instance_id)
+
+    return qs
+
+
+# ============================================================
+#  SHIFT REGISTRATION
+# ============================================================
+
+def get_shift_registration(reg_id: int) -> ShiftRegistration | None:
+    """Lấy 1 ShiftRegistration theo id."""
     return (
-        ShiftRegistration.objects
-        .select_related(
-            "employee",
-            "shift_instance__template__default_worksite",
-            "shift_instance__worksite",
-            "created_by",
-        )
-        .get(pk=pk)
+        ShiftRegistration.objects.select_related("employee", "shift_instance")
+        .filter(id=reg_id)
+        .first()
     )
 
-def get_assignment_with_related(pk: int) -> ShiftAssignment:
+
+def list_shift_registrations(employee_id: int | None = None, shift_instance_id: int | None = None, status: str | None = None) -> list[ShiftRegistration]:
+    """
+    Lấy danh sách ShiftRegistration (có filter).
+    """
+    qs = ShiftRegistration.objects.select_related("employee", "shift_instance")
+
+    if employee_id:
+        qs = qs.filter(employee_id=employee_id)
+    if shift_instance_id:
+        qs = qs.filter(shift_instance_id=shift_instance_id)
+    if status:
+        qs = qs.filter(status=status)
+
+    return qs
+
+
+# ============================================================
+#  EXTRA HELPERS
+# ============================================================
+
+def get_active_employee(emp_id: int) -> Employee | None:
+    """Trả về Employee nếu đang active, ngược lại None."""
+    return Employee.objects.filter(id=emp_id, is_active=True).first()
+
+
+def get_registration_with_related(reg_id: int) -> ShiftRegistration | None:
+    """Lấy 1 ShiftRegistration cùng thông tin liên quan (employee, shift_instance, template)."""
     return (
-        ShiftAssignment.objects
-        .select_related(
-            "employee",
-            "assigned_by",
-            "shift_instance__template__default_worksite",
-            "shift_instance__worksite",
-        )
-        .get(pk=pk)
+        ShiftRegistration.objects.select_related("employee", "shift_instance__template")
+        .filter(id=reg_id)
+        .first()
     )
 
-# ---- Helpers sẵn có của bạn, giữ nguyên (tuỳ nhu cầu) ----
-def instances_for_employee_on_date(employee_id: int, d) -> list[ShiftInstance]:
-    assigned_ids = list(
-        ShiftAssignment.objects.filter(shift_instance__date=d, employee_id=employee_id)
-        .values_list("shift_instance_id", flat=True)
+
+def get_assignment_with_related(assignment_id: int) -> ShiftAssignment | None:
+    """Lấy 1 ShiftAssignment cùng thông tin liên quan (employee, shift_instance, template)."""
+    return (
+        ShiftAssignment.objects.select_related("employee", "shift_instance__template")
+        .filter(id=assignment_id)
+        .first()
     )
-    reg_ids = list(
-        ShiftRegistration.objects.filter(shift_instance__date=d, employee_id=employee_id, status="approved")
-        .values_list("shift_instance_id", flat=True)
-    )
-    ids = set(assigned_ids + reg_ids)
-    return list(
-        ShiftInstance.objects.filter(id__in=ids).select_related("template", "worksite")
-    )
+
 
 def instances_around(ts) -> list[ShiftInstance]:
-    d = ts.date()
-    return list(
-        ShiftInstance.objects.filter(date__in=[d - timedelta(days=1), d, d + timedelta(days=1)])
-        .select_related("template", "worksite")
-    )
-
-def instance_window_with_grace(inst: ShiftInstance, *, checkin_open_grace_min: int, checkout_grace_min: int):
-    tz = timezone.get_current_timezone()
-    start = timezone.make_aware(datetime.combine(inst.date, inst.template.start_time), tz)
-    end   = timezone.make_aware(datetime.combine(inst.date, inst.template.end_time),   tz)
-    if inst.template.overnight and end <= start:
-        end += timedelta(days=1)
-    start_grace = start - timedelta(minutes=checkin_open_grace_min)
-    end_grace   = end + timedelta(minutes=checkout_grace_min)
-    return start, end, start_grace, end_grace
+    """Lấy các ShiftInstance có thể bao quanh timestamp `ts`."""
+    return ShiftInstance.objects.filter(
+        Q(date=ts.date())
+        | Q(date=ts.date() - timedelta(days=1), template__end_time__gt=F("template__start_time"))
+        | Q(date=ts.date() + timedelta(days=1), template__end_time__lt=F("template__start_time"))
+    ).select_related("template").all()
 
 
-# tính toán số phút làm việc theo kế hoạch của ca làm việc dựa trên mẫu ca và thời gian nghỉ
 def planned_minutes(inst: ShiftInstance) -> int:
-    """Planned minutes for this instance according to template and break."""
-    tz = timezone.get_current_timezone()
-    start = timezone.make_aware(datetime.combine(inst.date, inst.template.start_time), tz)
-    end   = timezone.make_aware(datetime.combine(inst.date, inst.template.end_time), tz)
-    if inst.template.overnight and end <= start:
-        end += timedelta(days=1)
-    total = int((end - start).total_seconds() // 60)
-    return max(0, total - int(inst.template.break_minutes or 0))
+    """Tính tổng phút làm việc thực tế trong ca (đã trừ break)."""
+    start_dt = datetime.combine(date.min, inst.template.start_time)
+    end_dt = datetime.combine(date.min, inst.template.end_time)
+    if inst.template.overnight and end_dt <= start_dt:
+        end_dt += timedelta(days=1)
+    total_minutes = int((end_dt - start_dt).total_seconds() // 60) - inst.template.break_minutes
+    return max(total_minutes, 0)
+
+
+

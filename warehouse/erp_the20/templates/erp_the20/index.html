@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>Chấm công The20</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      max-width: 420px;
+    }
+    h1 { color: #2c3e50; }
+    label { font-weight: bold; display: block; margin-top: 12px; }
+    input, select, button {
+      padding: 8px;
+      width: 100%;
+      box-sizing: border-box;
+      margin-top: 6px;
+    }
+    button {
+      margin-top: 12px;
+      background: #3498db;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover { background: #2980b9; }
+    #log {
+      margin-top: 20px;
+      white-space: pre-line;
+      padding: 10px;
+      background: #f6f6f6;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Chấm công The20</h1>
+
+  <label>
+    Mã nhân viên (employee ID):
+    <input id="empId" type="number" placeholder="VD: 1" />
+  </label>
+
+  <label>
+    ID ca làm (shift_instance - tùy chọn):
+    <input id="shiftId" type="number" placeholder="VD: 12 (có thể bỏ trống)" />
+  </label>
+
+  <button onclick="sendAttendance('checkin')">Check-in</button>
+  <button onclick="sendAttendance('checkout')">Check-out</button>
+
+  <div id="log"></div>
+
+  <script>
+    const FLASK_SERVER   = "http://192.168.100.214:3000"; // Flask token server
+    const DJANGO_BACKEND = "http://barcode.the20.vn";       // Django backend
+
+    async function sendAttendance(action) {
+      const empId  = document.getElementById("empId").value.trim();
+      const shiftId = document.getElementById("shiftId").value.trim();
+
+      if (!empId) {
+        log("❌ Vui lòng nhập Mã nhân viên (số ID)");
+        return;
+      }
+
+      try {
+        // 1️⃣ Lấy token từ Flask
+        const tokenRes = await fetch(`${FLASK_SERVER}/request-token`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ empID: parseInt(empId, 10) })
+        });
+        if (!tokenRes.ok) throw new Error("Không thể xin token");
+        const { token } = await tokenRes.json();
+        log(`✅ Token: ${token}`);
+
+        // 2️⃣ Gửi dữ liệu tới Django
+        const payload = {
+          employee: parseInt(empId, 10),   // gửi PK dạng số nguyên
+          source: "web"
+        };
+        if (shiftId) payload.shift_instance = parseInt(shiftId, 10);
+
+        const attendanceRes = await fetch(
+          `${DJANGO_BACKEND}/the20/attendance/${action}/`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Local-Access": token
+            },
+            body: JSON.stringify(payload)
+          }
+        );
+
+        const result = await attendanceRes.json();
+        if (!attendanceRes.ok) throw new Error(JSON.stringify(result));
+        log(`🎉 ${action.toUpperCase()} thành công:\n${JSON.stringify(result, null, 2)}`);
+      } catch (err) {
+        log(`⚠️ Lỗi: ${err}`);
+      }
+    }
+
+    function log(msg) {
+      const logDiv = document.getElementById("log");
+      logDiv.textContent += msg + "\n";
+    }
+  </script>
+</body>
+</html>

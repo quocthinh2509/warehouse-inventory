@@ -26,7 +26,7 @@ SECRET_KEY = 'django-insecure-=btx$g1x8r*)1^=!3y%@b0vo=+j1@2=qovuej#7k2of=763u*%
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["127.0.0.1", "localhost", ".ngrok-free.app","barcode.the20.vn"]
+ALLOWED_HOSTS = ["127.0.0.1", "localhost", ".ngrok-free.app","barcode.the20.vn","*"]
 
 
 # Application definition
@@ -44,7 +44,6 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'erp_the20',
     'api',
-    'attendance',
 ]
 
 MIDDLEWARE = [
@@ -86,8 +85,20 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    },
+    'erp_postgres': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'erpdb',
+        'USER': 'admin01',
+        'PASSWORD': 'THE20@12345',
+        'HOST': '45.76.159.161',
+        'PORT': '5432',
+    },
+
+
 }
+DATABASE_ROUTERS = ['warehouse.db_routers.AppRouter']
+
 
 
 # Password validation
@@ -114,7 +125,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Ho_Chi_Minh'
 
 USE_I18N = True
 
@@ -178,13 +189,3 @@ CACHES ={
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
 }
 
-JWT_SECRET = os.getenv("JWT_SECRET", "replace_with_strong_server_secret")
-JWT_ALGO = "HS256"
-LOCAL_ACCESS_TTL = int(os.getenv("LOCAL_ACCESS_TTL", "180"))  # 3 phút
-
-# Khai báo các agent hợp lệ và secret HMAC tương ứng (trùng với agent.py)
-AGENTS = {
-    "office-01": {"hmac_secret": os.getenv("AGENT_office_01_SECRET", "replace_with_strong_secret")},
-}
-
-MAC_SECRET_TOKEN ='THE20@2025'

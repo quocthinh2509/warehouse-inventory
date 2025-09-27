@@ -1,182 +1,198 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.exceptions import ValidationError as DRFValidationError
-from drf_spectacular.utils import OpenApiExample
-# from rest_framework.permissions import IsAuthenticated  # nếu muốn bắt buộc login, bỏ comment và set ở class
+from drf_spectacular.utils import extend_schema, OpenApiParameter
 
 from erp_the20.serializers.shift_serializer import (
-    ShiftTemplateSerializer, ShiftInstanceSerializer, ShiftRegistrationSerializer,
-    ShiftTemplateReadSerializer, ShiftInstanceReadSerializer, ShiftRegistrationReadSerializer, ShiftAssignmentReadSerializer,
-    ShiftRegisterBodySerializer, ShiftDirectAssignBodySerializer, ShiftInstanceQuerySerializer
+    ShiftTemplateWriteSerializer, ShiftTemplateReadSerializer,
+    ShiftInstanceWriteSerializer, ShiftInstanceReadSerializer,
+    ShiftAssignmentWriteSerializer, ShiftAssignmentReadSerializer,
+    ShiftRegistrationWriteSerializer, ShiftRegistrationReadSerializer,
+    ShiftInstanceQuerySerializer,
+)
+from erp_the20.services.shift_service import (
+    create_shift_template, update_shift_template, delete_shift_template,
+    create_shift_instance, update_shift_instance, delete_shift_instance,
+    assign_employee_to_shift, update_shift_assignment, delete_shift_assignment,
+    register_shift, update_shift_registration, delete_shift_registration,
 )
 from erp_the20.selectors.shift_selector import (
-    list_shift_templates, reload_shift_template,
-    list_open_shift_instances, reload_shift_instance,
-    get_active_employee, get_registration_with_related, get_assignment_with_related
-)
-from erp_the20.services.shift_service import register_shift, approve_registration, assign_shift
-from .utils import (
-    extend_schema, extend_schema_view, OpenApiResponse,
-    q_date, q_int, path_int, std_errors
+    list_shift_templates, get_shift_template,
+    list_shift_instances, get_shift_instance,
+    get_shift_assignment, get_shift_registration,
 )
 
-def user_or_none(user):
-    """Trả về user nếu đã auth, ngược lại None (tránh AnonymousUser gán vào FK)."""
-    return user if getattr(user, "is_authenticated", False) else None
+# ============== SHIFT TEMPLATE ==============
 
-# ---------- Shift Template ----------
-@extend_schema_view(
-    get=extend_schema(
-        tags=["Shift"], summary="List shift templates",
-        responses=OpenApiResponse(ShiftTemplateReadSerializer(many=True))
-    ),
-    post=extend_schema(
-        tags=["Shift"], summary="Create shift template",
-        request=ShiftTemplateSerializer,
-        responses={201: OpenApiResponse(ShiftTemplateReadSerializer), **std_errors()},
-    ),
-)
-class ShiftTemplateListCreateView(APIView):
-    # permission_classes = [IsAuthenticated]  # tuỳ chính sách
+class ShiftTemplateListCreate(APIView):
+    @extend_schema(
+        responses=ShiftTemplateReadSerializer(many=True),
+        description="Danh sách ca làm (template)."
+    )
     def get(self, request):
         qs = list_shift_templates()
         return Response(ShiftTemplateReadSerializer(qs, many=True).data)
 
+    @extend_schema(
+        request=ShiftTemplateWriteSerializer,
+        responses=ShiftTemplateReadSerializer,
+        description="Tạo mới ca làm (template)."
+    )
     def post(self, request):
-        ser = ShiftTemplateSerializer(data=request.data)
+        ser = ShiftTemplateWriteSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        obj = ser.save()
-        obj = reload_shift_template(obj.pk)
+        obj = create_shift_template(ser.validated_data)
         return Response(ShiftTemplateReadSerializer(obj).data, status=status.HTTP_201_CREATED)
 
-# ---------- Shift Instance ----------
-@extend_schema_view(
-    get=extend_schema(
-        tags=["Shift"], summary="List shift instances",
-        parameters=[q_date("date_from", "YYYY-MM-DD"), q_date("date_to", "YYYY-MM-DD"), q_int("worksite", "Worksite ID")],
-        responses=OpenApiResponse(ShiftInstanceReadSerializer(many=True)),
-        examples=[OpenApiExample("Query ví dụ", value={"date_from": "2025-09-01", "date_to": "2025-09-30", "worksite": 1})],
-    ),
-    post=extend_schema(
-        tags=["Shift"], summary="Create shift instance",
-        request=ShiftInstanceSerializer,
-        responses={201: OpenApiResponse(ShiftInstanceReadSerializer), **std_errors()},
-    ),
-)
-class ShiftInstanceListCreateView(APIView):
-    # permission_classes = [IsAuthenticated]
+
+class ShiftTemplateDetail(APIView):
+    @extend_schema(
+        request=ShiftTemplateWriteSerializer,
+        responses=ShiftTemplateReadSerializer,
+        description="Cập nhật ca làm (template) theo ID."
+    )
+    def put(self, request, pk):
+        template = get_shift_template(pk)
+        if not template:
+            return Response({"detail": "Not found"}, status=404)
+        ser = ShiftTemplateWriteSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        updated = update_shift_template(template, ser.validated_data)
+        return Response(ShiftTemplateReadSerializer(updated).data)
+
+    @extend_schema(description="Xóa ca làm (template) theo ID.")
+    def delete(self, request, pk):
+        template = get_shift_template(pk)
+        if not template:
+            return Response({"detail": "Not found"}, status=404)
+        delete_shift_template(template)
+        return Response(status=204)
+
+
+# ============== SHIFT INSTANCE ==============
+
+class ShiftInstanceListCreate(APIView):
+    @extend_schema(
+        parameters=[OpenApiParameter("date_from", str, description="YYYY-MM-DD"),
+                    OpenApiParameter("date_to", str, description="YYYY-MM-DD"),
+                    OpenApiParameter("status", str)],
+        responses=ShiftInstanceReadSerializer(many=True),
+        description="Danh sách ca làm cụ thể (instance) với filter ngày."
+    )
     def get(self, request):
         qser = ShiftInstanceQuerySerializer(data=request.query_params)
         qser.is_valid(raise_exception=True)
-        p = qser.validated_data
-
-        qs = list_open_shift_instances(
-            date_from=p.get("date_from"),
-            date_to=p.get("date_to"),
-            worksite_id=p.get("worksite")
-        )
+        df = qser.validated_data.get("date_from")
+        dt = qser.validated_data.get("date_to")
+        status_q = request.query_params.get("status")
+        qs = list_shift_instances(df, dt, status_q)
         return Response(ShiftInstanceReadSerializer(qs, many=True).data)
 
+    @extend_schema(
+        request=ShiftInstanceWriteSerializer,
+        responses=ShiftInstanceReadSerializer,
+        description="Tạo mới ca làm cụ thể (instance)."
+    )
     def post(self, request):
-        ser = ShiftInstanceSerializer(data=request.data)
+        ser = ShiftInstanceWriteSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        obj = ser.save()
-        obj = reload_shift_instance(obj.pk)
-        return Response(ShiftInstanceReadSerializer(obj).data, status=status.HTTP_201_CREATED)
+        obj = create_shift_instance(ser.validated_data)
+        return Response(ShiftInstanceReadSerializer(obj).data, status=201)
 
-# ---------- Register a shift ----------
-@extend_schema_view(
-    post=extend_schema(
-        tags=["Shift"], summary="Register to a shift instance",
-        parameters=[path_int("shift_id", "ShiftInstance ID")],
-        request=ShiftRegisterBodySerializer,
-        responses={201: OpenApiResponse(ShiftRegistrationReadSerializer), **std_errors()},
-        examples=[OpenApiExample("Body mẫu", request_only=True, value={"employee": 7, "reason": "swap"})],
+
+class ShiftInstanceDetail(APIView):
+    @extend_schema(
+        request=ShiftInstanceWriteSerializer,
+        responses=ShiftInstanceReadSerializer,
+        description="Cập nhật ca làm cụ thể theo ID."
     )
-)
-class ShiftRegisterView(APIView):
-    # permission_classes = [IsAuthenticated]
-    def post(self, request, shift_id: int):
-        body = ShiftRegisterBodySerializer(data=request.data)
-        body.is_valid(raise_exception=True)
-        emp_id = body.validated_data["employee"]
-        reason = body.validated_data.get("reason", "")
+    def put(self, request, pk):
+        instance = get_shift_instance(pk)
+        if not instance:
+            return Response({"detail": "Not found"}, status=404)
+        ser = ShiftInstanceWriteSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        updated = update_shift_instance(instance, ser.validated_data)
+        return Response(ShiftInstanceReadSerializer(updated).data)
 
-        employee = get_active_employee(emp_id)
-        if not employee:
-            raise DRFValidationError({"employee": "Employee not found or inactive."})
+    @extend_schema(description="Xóa ca làm cụ thể theo ID.")
+    def delete(self, request, pk):
+        instance = get_shift_instance(pk)
+        if not instance:
+            return Response({"detail": "Not found"}, status=404)
+        delete_shift_instance(instance)
+        return Response(status=204)
 
-        try:
-            reg = register_shift(
-                employee=employee,
-                shift_instance_id=shift_id,
-                created_by=user_or_none(request.user),  # <<< rửa user
-                reason=reason,
-            )
-        except Exception as exc:
-            if hasattr(exc, "message_dict"):
-                raise DRFValidationError(exc.message_dict)
-            raise DRFValidationError({"detail": str(exc)})
 
-        reg = get_registration_with_related(reg.pk)
-        return Response(ShiftRegistrationReadSerializer(reg).data, status=status.HTTP_201_CREATED)
+# ============== SHIFT ASSIGNMENT ==============
 
-# ---------- Approve a registration ----------
-@extend_schema_view(
-    post=extend_schema(
-        tags=["Shift"], summary="Approve a shift registration",
-        parameters=[path_int("reg_id", "Registration ID")],
-        responses={200: OpenApiResponse(ShiftRegistrationReadSerializer), **std_errors()},
+class ShiftAssignmentCRUD(APIView):
+    @extend_schema(
+        request=ShiftAssignmentWriteSerializer,
+        responses=ShiftAssignmentReadSerializer,
+        description="Gán nhân viên vào ca làm."
     )
-)
-class ShiftApproveRegistrationView(APIView):
-    # permission_classes = [IsAuthenticated]
-    def post(self, request, reg_id: int):
-        try:
-            reg = approve_registration(
-                registration_id=reg_id,
-                approver=user_or_none(request.user),  # <<< rửa user
-            )
-        except Exception as exc:
-            if hasattr(exc, "message_dict"):
-                raise DRFValidationError(exc.message_dict)
-            raise DRFValidationError({"detail": str(exc)})
+    def post(self, request):
+        ser = ShiftAssignmentWriteSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        obj = assign_employee_to_shift(ser.validated_data)
+        return Response(ShiftAssignmentReadSerializer(obj).data, status=201)
 
-        reg = get_registration_with_related(reg.pk)
-        return Response(ShiftRegistrationReadSerializer(reg).data)
-
-# ---------- Direct assign ----------
-@extend_schema_view(
-    post=extend_schema(
-        tags=["Shift"], summary="Directly assign an employee to a shift instance",
-        parameters=[path_int("shift_id", "ShiftInstance ID")],
-        request=ShiftDirectAssignBodySerializer,
-        responses={201: OpenApiResponse(ShiftAssignmentReadSerializer), **std_errors()},
-        examples=[OpenApiExample("Body mẫu", request_only=True, value={"employee": 1})],
+    @extend_schema(
+        request=ShiftAssignmentWriteSerializer,
+        responses=ShiftAssignmentReadSerializer,
+        description="Cập nhật gán nhân viên theo ID."
     )
-)
-class ShiftDirectAssignView(APIView):
-    # permission_classes = [IsAuthenticated]
-    def post(self, request, shift_id: int):
-        body = ShiftDirectAssignBodySerializer(data=request.data)
-        body.is_valid(raise_exception=True)
-        emp_id = body.validated_data["employee"]
+    def put(self, request, pk):
+        assignment = get_shift_assignment(pk)
+        if not assignment:
+            return Response({"detail": "Not found"}, status=404)
+        ser = ShiftAssignmentWriteSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        updated = update_shift_assignment(assignment, ser.validated_data)
+        return Response(ShiftAssignmentReadSerializer(updated).data)
 
-        employee = get_active_employee(emp_id)
-        if not employee:
-            raise DRFValidationError({"employee": "Employee not found or inactive."})
+    @extend_schema(description="Xóa gán nhân viên theo ID.")
+    def delete(self, request, pk):
+        assignment = get_shift_assignment(pk)
+        if not assignment:
+            return Response({"detail": "Not found"}, status=404)
+        delete_shift_assignment(assignment)
+        return Response(status=204)
 
-        try:
-            ass = assign_shift(
-                employee=employee,
-                shift_instance_id=shift_id,
-                assigned_by=user_or_none(request.user),  # <<< rửa user
-            )
-        except Exception as exc:
-            if hasattr(exc, "message_dict"):
-                raise DRFValidationError(exc.message_dict)
-            raise DRFValidationError({"detail": str(exc)})
 
-        ass = get_assignment_with_related(ass.pk)
-        return Response(ShiftAssignmentReadSerializer(ass).data, status=status.HTTP_201_CREATED)
+# ============== SHIFT REGISTRATION ==============
+
+class ShiftRegistrationCRUD(APIView):
+    @extend_schema(
+        request=ShiftRegistrationWriteSerializer,
+        responses=ShiftRegistrationReadSerializer,
+        description="Nhân viên đăng ký ca làm."
+    )
+    def post(self, request):
+        ser = ShiftRegistrationWriteSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        obj = register_shift(ser.validated_data)
+        return Response(ShiftRegistrationReadSerializer(obj).data, status=201)
+
+    @extend_schema(
+        request=ShiftRegistrationWriteSerializer,
+        responses=ShiftRegistrationReadSerializer,
+        description="Cập nhật đăng ký ca làm theo ID."
+    )
+    def put(self, request, pk):
+        registration = get_shift_registration(pk)
+        if not registration:
+            return Response({"detail": "Not found"}, status=404)
+        ser = ShiftRegistrationWriteSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        updated = update_shift_registration(registration, ser.validated_data)
+        return Response(ShiftRegistrationReadSerializer(updated).data)
+
+    @extend_schema(description="Xóa đăng ký ca làm theo ID.")
+    def delete(self, request, pk):
+        registration = get_shift_registration(pk)
+        if not registration:
+            return Response({"detail": "Not found"}, status=404)
+        delete_shift_registration(registration)
+        return Response(status=204)

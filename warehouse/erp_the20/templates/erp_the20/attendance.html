@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>Danh sách công</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; }
+    h1 { color: #2c3e50; text-align: center; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    th { background: #f4f4f4; }
+    label { margin-right: 8px; }
+    input { margin-right: 12px; }
+    button { padding: 6px 12px; }
+  </style>
+</head>
+<body>
+  <h1>Bảng tổng hợp công</h1>
+  <div>
+    <label>Employee ID <input type="number" id="emp" /></label>
+    <label>Từ ngày <input type="date" id="from" /></label>
+    <label>Đến ngày <input type="date" id="to" /></label>
+    <button onclick="loadData()">Tải dữ liệu</button>
+  </div>
+  <table id="summaryTable">
+    <thead>
+      <tr>
+        <th>Ngày</th>
+        <th>Nhân viên</th>
+        <th>Giờ làm</th>
+        <th>Check-in</th>
+        <th>Check-out</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    async function loadData() {
+      const emp = document.getElementById('emp').value;
+      const from = document.getElementById('from').value;
+      const to = document.getElementById('to').value;
+
+      const params = new URLSearchParams();
+      if (emp) params.append('employee', emp);
+      if (from) params.append('date_from', from);
+      if (to) params.append('date_to', to);
+
+      const res = await fetch(`/api/attendance/summaries/?${params.toString()}`);
+      const data = await res.json();
+      const tbody = document.querySelector('#summaryTable tbody');
+      tbody.innerHTML = '';
+      data.forEach(row => {
+        tbody.innerHTML += `
+          <tr>
+            <td>${row.date}</td>
+            <td>${row.employee_name || row.employee}</td>
+            <td>${row.total_hours || ''}</td>
+            <td>${row.first_check_in || ''}</td>
+            <td>${row.last_check_out || ''}</td>
+          </tr>`;
+      });
+    }
+  </script>
+</body>
+</html>

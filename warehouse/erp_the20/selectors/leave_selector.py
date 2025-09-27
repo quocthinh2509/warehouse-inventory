@@ -1,7 +1,22 @@
-from erp_the20.models import LeaveBalance, LeaveRequest
+from erp_the20.models import LeaveType
 
-def get_balance(employee_id: int, leave_type_id: int, period: str):
-    return LeaveBalance.objects.filter(employee_id=employee_id, leave_type_id=leave_type_id, period=period).first()
+# Lấy LeaveType theo ID
+def get_leave_type_by_id(leave_type_id: int):
+    """
+    Trả về LeaveType theo ID.
+    """
+    return LeaveType.objects.filter(id=leave_type_id).first()
 
-def list_requests(employee_id: int):
-    return LeaveRequest.objects.filter(employee_id=employee_id).select_related("leave_type")
+# Lấy LeaveType theo code
+def get_leave_type_by_code(code: str):
+    """
+    Trả về LeaveType theo code.
+    """
+    return LeaveType.objects.filter(code=code).first()
+
+# Lấy danh sách tất cả LeaveType
+def list_all_leave_types():
+    """
+    Trả về danh sách tất cả LeaveType, sắp xếp theo code.
+    """
+    return LeaveType.objects.all().order_by("code")

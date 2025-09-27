@@ -1,38 +1,62 @@
 from erp_the20.models import Department
 from django.core.exceptions import ValidationError
 
-# tạo phòng ban
+# ----------------------
+# Department Service
+# ----------------------
+
 def create_department(data: dict) -> Department:
-    if Department.objects.filter(code=data["code"]).exists(): # kiểm tra mã phòng ban có bị trùng không
-        raise ValidationError("Department code must be unique") # nếu bị trùng thì báo lỗi
-    return Department.objects.create(**data) # nếu không bị trùng thì tạo phòng ban mới
+    """
+    Tạo mới một Department.
+    
+    Args:
+        data (dict): {"code": str, "name": str}
+        
+    Raises:
+        ValidationError: nếu code bị trùng
+        
+    Returns:
+        Department: object mới tạo
+    """
+    if Department.objects.filter(code=data["code"]).exists():
+        raise ValidationError("Department code must be unique")
+    return Department.objects.create(**data)
 
-# cập nhật phòng ban
+
 def update_department(dept: Department, data: dict) -> Department:
-    if "code" in data and data["code"] != dept.code: # kiểm tra mã phòng ban có thay đổi không
-        if Department.objects.filter(code=data["code"]).exists(): # kiểm tra mã phòng ban có bị trùng không
-            raise ValidationError("Department code must be unique") # nếu bị trùng thì báo lỗi
-        dept.code = data["code"] # nếu không bị trùng thì gán mã phòng ban mới
-    if "name" in data: # kiểm tra tên phòng ban có thay đổi không
-        dept.name = data["name"] # nếu có thì gán tên phòng ban mới
-    dept.save() # lưu thay đổi
+    """
+    Cập nhật thông tin Department.
+    
+    Args:
+        dept (Department): object cần update
+        data (dict): fields cần update {"code": str, "name": str}
+        
+    Raises:
+        ValidationError: nếu code mới bị trùng
+        
+    Returns:
+        Department: object đã update
+    """
+    if "code" in data and data["code"] != dept.code:
+        if Department.objects.filter(code=data["code"]).exists():
+            raise ValidationError("Department code must be unique")
+        dept.code = data["code"]
+
+    if "name" in data:
+        dept.name = data["name"]
+
+    dept.save()
     return dept
 
-# xóa phòng ban
-def delete_department(dept: Department): 
+
+def delete_department(dept: Department) -> None:
+    """
+    Xóa Department.
+    
+    Args:
+        dept (Department): object cần xóa
+        
+    Returns:
+        None
+    """
     dept.delete()
-    return None
-
-# vô hiệu phòng ban
-def deactivate_department(dept: Department):
-    dept.is_active = False
-    dept.save(update_fields=["is_active"])
-    return dept
-
-# kích hoạt phòng ban
-def activate_department(dept: Department):
-    dept.is_active = True
-    dept.save(update_fields=["is_active"])
-    return dept
-
-

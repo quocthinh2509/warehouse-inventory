@@ -1,24 +1,39 @@
-from datetime import timedelta, date
+from datetime import timedelta
 from django.db import transaction
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 from erp_the20.models import LeaveRequest, LeaveBalance, AttendanceSummary
 
+# ----------------------
+# Leave Service
+# ----------------------
+
 @transaction.atomic
 def request_leave(*, employee, leave_type, start_date, end_date, hours=None, reason="", attachment=None) -> LeaveRequest:
+    """
+    Nhân viên gửi yêu cầu nghỉ
+    """
     if end_date < start_date:
         raise ValidationError("end_date must be >= start_date")
-    req = LeaveRequest.objects.create(
-        employee=employee, leave_type=leave_type, start_date=start_date, end_date=end_date,
-        hours=hours, reason=reason, attachment=attachment, status="pending"
+    return LeaveRequest.objects.create(
+        employee=employee,
+        leave_type=leave_type,
+        start_date=start_date,
+        end_date=end_date,
+        hours=hours,
+        reason=reason,
+        attachment=attachment,
+        status="pending"
     )
-    return req
 
 
 @transaction.atomic
 def approve_leave(*, request_id: int, approver):
-    req = LeaveRequest.objects.select_for_update().filter(id=request_id).first()
-    if not req or req.status != "pending":
+    """
+    Quản lý duyệt yêu cầu nghỉ
+    """
+    req = LeaveRequest.objects.select_for_update().filter(id=request_id, status="pending").first()
+    if not req:
         raise ValidationError("Request not found or not pending")
 
     req.status = "approved"
@@ -32,8 +47,11 @@ def approve_leave(*, request_id: int, approver):
 
 
 def reject_leave(*, request_id: int, approver):
-    req = LeaveRequest.objects.filter(id=request_id).first()
-    if not req or req.status != "pending":
+    """
+    Quản lý từ chối yêu cầu nghỉ
+    """
+    req = LeaveRequest.objects.filter(id=request_id, status="pending").first()
+    if not req:
         raise ValidationError("Request not found or not pending")
     req.status = "rejected"
     req.approver = approver
@@ -43,19 +61,24 @@ def reject_leave(*, request_id: int, approver):
 
 
 def cancel_leave(*, request_id: int, actor):
-    req = LeaveRequest.objects.filter(id=request_id).first()
-    if not req or req.status != "approved":
+    """
+    Hủy yêu cầu nghỉ đã được duyệt
+    """
+    req = LeaveRequest.objects.filter(id=request_id, status="approved").first()
+    if not req:
         raise ValidationError("Only approved leave can be canceled")
     req.status = "canceled"
     req.decision_ts = timezone.now()
     req.save(update_fields=["status", "decision_ts"])
-    # Optionally revert summaries/balances
     return req
 
 
-# ---- internals ----
+# ---- Internals ----
 
 def _apply_leave_to_summaries(req: LeaveRequest):
+    """
+    Áp dụng leave vào AttendanceSummary: status="leave"
+    """
     cur = req.start_date
     while cur <= req.end_date:
         summ, _ = AttendanceSummary.objects.get_or_create(employee=req.employee, date=cur)
@@ -66,9 +89,11 @@ def _apply_leave_to_summaries(req: LeaveRequest):
 
 
 def _apply_to_balance(req: LeaveRequest):
+    """
+    Cập nhật LeaveBalance
+    """
     period = str(req.start_date.year)
     bal, _ = LeaveBalance.objects.get_or_create(employee=req.employee, leave_type=req.leave_type, period=period)
-    # very simple: each day = 1.00; if hours present, you can convert to day fraction
     days = (req.end_date - req.start_date).days + 1
     bal.used = (bal.used or 0) + days
     bal.closing = (bal.opening + bal.accrued + bal.carry_in) - (bal.used + bal.carry_out)
