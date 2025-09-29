@@ -12,6 +12,6 @@ class AppRouter:
         return 'default'
 
     def allow_migrate(self, db, app_label, model_name=None, **hints):
-        # if app_label == 'erp_the20':
-        #     return db == 'erp_postgres'
+        if app_label == 'erp_the20':
+            return db == 'erp_postgres'
         return db == 'default'
