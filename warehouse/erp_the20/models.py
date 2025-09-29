@@ -58,7 +58,7 @@ class ShiftTemplate(TimeStampedModel):   # mẫu ca làm việc
     end_time = models.TimeField() # giờ kết thúc ca làm việc
     break_minutes = models.IntegerField(default=0) # phút nghỉ giữa ca
     overnight = models.BooleanField(default=False) # ca qua đêm  true (VD: 22:00 - 06:00) / false (VD: 08:00 - 17:00)
-    weekly_days = models.JSONField(default=list)
+    #weekly_days = models.JSONField(default=list)
 
 
     class Meta:

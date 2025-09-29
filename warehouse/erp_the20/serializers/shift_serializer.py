@@ -31,7 +31,7 @@ class ShiftTemplateReadSerializer(serializers.ModelSerializer):
         model = ShiftTemplate
         fields = [
             "id", "code", "name", "start_time", "end_time",
-            "break_minutes", "overnight", "weekly_days"
+            "break_minutes", "overnight"
         ]
 
 class ShiftInstanceReadSerializer(serializers.ModelSerializer):

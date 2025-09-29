@@ -16,7 +16,7 @@ def create_shift_template(data: dict) -> ShiftTemplate:
     """
     Tạo ShiftTemplate (mẫu ca làm việc).
     Args:
-        data: {"code", "name", "start_time", "end_time", "break_minutes", "overnight", "weekly_days"}
+        data: {"code", "name", "start_time", "end_time", "break_minutes", "overnight"}
     Raises:
         ValidationError: nếu code đã tồn tại
     """
@@ -37,7 +37,7 @@ def update_shift_template(template: ShiftTemplate, data: dict) -> ShiftTemplate:
             raise ValidationError("ShiftTemplate code must be unique")
         template.code = data["code"]
 
-    for field in ["name", "start_time", "end_time", "break_minutes", "overnight", "weekly_days"]:
+    for field in ["name", "start_time", "end_time", "break_minutes", "overnight"]:
         if field in data:
             setattr(template, field, data[field])
 
