@@ -55,7 +55,7 @@
   <div id="log"></div>
 
   <script>
-    const FLASK_SERVER   = "http://192.168.100.214:3000"; // Flask token server
+    const FLASK_SERVER   = "http://192.168.1.43:3000"; // Flask token server
     const DJANGO_BACKEND = "http://barcode.the20.vn";       // Django backend
 
     async function sendAttendance(action) {
@@ -72,7 +72,7 @@
         const tokenRes = await fetch(`${FLASK_SERVER}/request-token`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ empID: parseInt(empId, 10) })
+          body: JSON.stringify({ empId: empId })
         });
         if (!tokenRes.ok) throw new Error("Không thể xin token");
         const { token } = await tokenRes.json();

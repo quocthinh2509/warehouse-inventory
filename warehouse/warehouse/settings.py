@@ -39,7 +39,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
-   # 'corsheaders',          # nếu cần gọi từ front-end khác domain
+    'corsheaders',          # nếu cần gọi từ front-end khác domain
     'inventory',
     'drf_spectacular',
     'erp_the20',
@@ -48,6 +48,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.common.CommonMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -100,7 +101,7 @@ DATABASES = {
 DATABASE_ROUTERS = ['warehouse.db_routers.AppRouter']
 
 
-
+CORS_ALLOW_ALL_ORIGINS = True
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 

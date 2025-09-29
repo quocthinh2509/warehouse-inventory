@@ -11,3 +11,4 @@ djangorestframework>=3.15.0
 django-extensions
 drf-spectacular
 psycopg2-binary
+django-cors-headers
