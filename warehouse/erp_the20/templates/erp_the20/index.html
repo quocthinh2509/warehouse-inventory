@@ -7,7 +7,7 @@
     body {
       font-family: Arial, sans-serif;
       margin: 20px;
-      max-width: 420px;
+      max-width: 520px;
     }
     h1 { color: #2c3e50; }
     label { font-weight: bold; display: block; margin-top: 12px; }
@@ -33,6 +33,9 @@
       background: #f6f6f6;
       border: 1px solid #ddd;
       border-radius: 4px;
+      max-height: 480px;
+      overflow-y: auto;
+      font-size: 14px;
     }
   </style>
 </head>
@@ -82,11 +85,16 @@
           throw new Error(`Lỗi xin token (${tokenRes.status}): ${errText}`);
         }
   
-        const { token, exp } = await tokenRes.json(); // exp = thời gian hết hạn (nếu backend trả về)
+        const { token, issuedAt, expiresAt, expiresIn, fromLocalIp } = await tokenRes.json();
+
         log(`✅ Token mới: ${token}`);
+        log(`   • issuedAt: ${issuedAt || "?"}`);
+        log(`   • expiresAt: ${expiresAt || "?"}`);
+        log(`   • expiresIn: ${expiresIn || "?"}s`);
+        log(`   • fromLocalIp: ${fromLocalIp || "?"}\n`);
         
         // Thêm vào danh sách token còn hạn
-        activeTokens.push({ token, exp: exp || "Không rõ" });
+        activeTokens.push({ token, issuedAt, expiresAt, expiresIn, fromLocalIp });
         renderTokens();
   
         // 2️⃣ Gửi dữ liệu tới Django
@@ -111,13 +119,13 @@
         const result = await attendanceRes.json().catch(() => ({}));
   
         if (!attendanceRes.ok) {
-          throw new Error(`Lỗi ${action} (${attendanceRes.status}): ${JSON.stringify(result)}`);
+          throw new Error(`Lỗi ${action.toUpperCase()} (${attendanceRes.status}): ${JSON.stringify(result)}`);
         }
   
-        log(`🎉 ${action.toUpperCase()} thành công:\n${JSON.stringify(result, null, 2)}`);
+        log(`🎉 ${action.toUpperCase()} thành công:\n${JSON.stringify(result, null, 2)}\n`);
   
       } catch (err) {
-        log(`⚠️ Lỗi: ${err.message}`);
+        log(`⚠️ Lỗi ${action.toUpperCase()}: ${err.message}\n`);
       }
     }
   
@@ -133,7 +141,7 @@
       const logDiv = document.getElementById("log");
       logDiv.textContent += "\n📌 Danh sách token còn hạn:\n";
       activeTokens.forEach((t, i) => {
-        logDiv.textContent += `${i + 1}. ${t.token} (hết hạn: ${t.exp})\n`;
+        logDiv.textContent += `${i + 1}. ${t.token}\n   • expiresAt: ${t.expiresAt || "Không rõ"}\n   • expiresIn: ${t.expiresIn || "?"}s\n   • fromLocalIp: ${t.fromLocalIp || "?"}\n`;
       });
       logDiv.textContent += "--------------------------\n";
     }

@@ -300,21 +300,22 @@
 #         # 👉 chỉ điều phối: gọi selector
 #         return list_attendance_events(employee_ids=employee_ids, start=start, end=end)
 
-
 # attendance_view.py
-from rest_framework.views import APIView
-from rest_framework import generics, status
-from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError as DRFValidationError, AuthenticationFailed
+import time
+import traceback
+import logging
+from datetime import datetime
+
 from django.utils.dateparse import parse_date
 from django.core.cache import cache
 from django.conf import settings
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 
-import time
-import traceback
-from datetime import datetime
+from rest_framework.views import APIView
+from rest_framework import generics, status
+from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError as DRFValidationError, AuthenticationFailed
 
 from erp_the20.models import Employee, AttendanceSummary
 from erp_the20.services.attendance_service import add_check_in, add_check_out
@@ -323,9 +324,8 @@ from erp_the20.serializers.attendance_serializer import (
     AttendanceEventReadSerializer,
     AttendanceSummaryReadSerializer,
 )
-from erp_the20.selectors.attendance_selector import (
-    list_attendance_events,
-)
+from erp_the20.selectors.attendance_selector import list_attendance_events
+
 from drf_spectacular.utils import (
     extend_schema,
     extend_schema_view,
@@ -334,27 +334,28 @@ from drf_spectacular.utils import (
     OpenApiExample,
 )
 
+logger = logging.getLogger(__name__)
+
 # ==============================================================
 # Helper
 # ==============================================================
 def _get_active_employee(emp_id: int):
-    """Lấy Employee đang active theo ID."""
     emp = Employee.objects.filter(id=emp_id, is_active=True).first()
     if not emp:
+        logger.warning(f"[Attendance] Employee {emp_id} not found or inactive")
         raise DRFValidationError({"employee": "Employee not found or inactive."})
     return emp
 
 
 def verify_local_token(request):
-    """
-    Xác thực token X-Local-Access từ agent nội bộ.
-    """
     token = request.headers.get("X-Local-Access")
     if not token:
+        logger.error("[Attendance] Missing X-Local-Access header")
         raise AuthenticationFailed("Missing X-Local-Access token")
 
     data = cache.get(f"local_token:{token}")
     if not data:
+        logger.error(f"[Attendance] Token invalid or expired: {token}")
         raise AuthenticationFailed("Invalid or expired local access token")
 
     return data
@@ -367,32 +368,6 @@ def verify_local_token(request):
     post=extend_schema(
         tags=["Attendance"],
         summary="Nhận local token từ agent",
-        request={
-            "application/json": {
-                "type": "object",
-                "properties": {
-                    "token": {"type": "string"},
-                    "issuedAt": {"type": "integer", "example": 1727096400},
-                    "expiresAt": {"type": "integer", "example": 1727098200},
-                    "meta": {"type": "object"},
-                },
-                "required": ["token", "expiresAt"],
-            }
-        },
-        responses={
-            201: OpenApiResponse(
-                response={
-                    "type": "object",
-                    "properties": {
-                        "status": {"type": "string"},
-                        "token": {"type": "string"},
-                        "ttl": {"type": "integer"},
-                    },
-                },
-                description="Lưu token thành công",
-            ),
-            400: OpenApiResponse(description="Thiếu hoặc token hết hạn"),
-        },
     )
 )
 class ReceiveLocalTokenView(APIView):
@@ -402,13 +377,17 @@ class ReceiveLocalTokenView(APIView):
         meta = request.data.get("meta") or {}
 
         if not token or not expires_at:
+            logger.error("[Attendance] Missing token or expiresAt")
             return Response({"error": "missing_token"}, status=status.HTTP_400_BAD_REQUEST)
 
         ttl = int(expires_at) - int(time.time())
         if ttl <= 0:
+            logger.warning(f"[Attendance] Received expired token: {token}")
             return Response({"error": "expired_token"}, status=status.HTTP_400_BAD_REQUEST)
 
-        cache.set(f"local_token:{token}", meta, timeout=ttl)
+        cache.set(f"local_token:{token}", {"meta": meta, "expires_at": expires_at}, timeout=ttl)
+
+        logger.info(f"[Attendance] ✅ Token saved: {token}, TTL={ttl}s (expiresAt={expires_at})")
         return Response({"status": "ok", "token": token, "ttl": ttl}, status=status.HTTP_201_CREATED)
 
 
@@ -419,29 +398,17 @@ class ReceiveLocalTokenView(APIView):
     post=extend_schema(
         tags=["Attendance"],
         summary="Check in",
-        description="Chỉ cho phép khi có X-Local-Access header.",
-        request=AttendanceEventWriteSerializer,
-        responses={201: OpenApiResponse(AttendanceEventReadSerializer)},
-        examples=[
-            OpenApiExample(
-                "Body mẫu",
-                request_only=True,
-                value={"employee": 1, "shift_instance": 12, "source": "web"},
-            )
-        ],
     )
 )
 class CheckInView(APIView):
     def post(self, request):
         try:
             claims = verify_local_token(request)
-
             serializer = AttendanceEventWriteSerializer(data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             data = serializer.validated_data
 
             employee = _get_active_employee(data["employee"].id)
-
             event = add_check_in(
                 employee=employee,
                 valid=claims,
@@ -449,9 +416,11 @@ class CheckInView(APIView):
                 shift_instance_id=data["shift_instance"].id if data.get("shift_instance") else None,
             )
 
+            logger.info(f"[Attendance] 🎉 CHECKIN thành công cho employee={employee.id}, token OK")
             return Response(AttendanceEventReadSerializer(event).data, status=status.HTTP_201_CREATED)
 
         except Exception as exc:
+            logger.error(f"[Attendance] ⚠️ Checkin failed: {exc}")
             traceback.print_exc()
             raise DRFValidationError({"detail": str(exc)})
 
@@ -463,22 +432,17 @@ class CheckInView(APIView):
     post=extend_schema(
         tags=["Attendance"],
         summary="Check out",
-        description="Chỉ cho phép khi có X-Local-Access header.",
-        request=AttendanceEventWriteSerializer,
-        responses={201: OpenApiResponse(AttendanceEventReadSerializer)},
     )
 )
 class CheckOutView(APIView):
     def post(self, request):
         try:
             claims = verify_local_token(request)
-
             serializer = AttendanceEventWriteSerializer(data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             data = serializer.validated_data
 
             employee = _get_active_employee(data["employee"].id)
-
             event = add_check_out(
                 employee=employee,
                 valid=claims,
@@ -486,9 +450,11 @@ class CheckOutView(APIView):
                 shift_instance_id=data["shift_instance"].id if data.get("shift_instance") else None,
             )
 
+            logger.info(f"[Attendance] 🎉 CHECKOUT thành công cho employee={employee.id}, token OK")
             return Response(AttendanceEventReadSerializer(event).data, status=status.HTTP_201_CREATED)
 
         except Exception as exc:
+            logger.error(f"[Attendance] ⚠️ Checkout failed: {exc}")
             traceback.print_exc()
             raise DRFValidationError({"detail": str(exc)})
 
@@ -496,18 +462,6 @@ class CheckOutView(APIView):
 # ==============================================================
 # AttendanceSummary listing
 # ==============================================================
-@extend_schema_view(
-    get=extend_schema(
-        tags=["Attendance"],
-        summary="Danh sách Attendance Summary",
-        parameters=[
-            OpenApiParameter("employee", int, OpenApiParameter.QUERY, description="Employee ID"),
-            OpenApiParameter("date_from", str, OpenApiParameter.QUERY, description="Từ ngày (YYYY-MM-DD)"),
-            OpenApiParameter("date_to", str, OpenApiParameter.QUERY, description="Đến ngày (YYYY-MM-DD)"),
-        ],
-        responses=OpenApiResponse(AttendanceSummaryReadSerializer(many=True)),
-    )
-)
 class AttendanceSummaryView(APIView):
     def get(self, request):
         emp = request.query_params.get("employee")
@@ -526,21 +480,8 @@ class AttendanceSummaryView(APIView):
 
 
 # ==============================================================
-# Debug token (chỉ dùng khi DEBUG=True)
+# Debug token (chỉ khi DEBUG=True)
 # ==============================================================
-@extend_schema_view(
-    get=extend_schema(
-        tags=["Attendance"],
-        summary="Xem toàn bộ local token trong cache (debug)",
-        responses={200: OpenApiResponse(
-            response={
-                "type": "object",
-                "additionalProperties": {"type": "object"},
-            },
-            description="Danh sách token đang lưu"
-        )}
-    )
-)
 @method_decorator(csrf_exempt, name="dispatch")
 class DebugTokenListView(APIView):
     def get(self, request):
@@ -548,15 +489,23 @@ class DebugTokenListView(APIView):
             return Response({"error": "Disabled in production"}, status=status.HTTP_403_FORBIDDEN)
 
         tokens = {}
+        now = int(time.time())
         try:
-            # Nếu dùng LocMemCache
             for key in cache._cache.keys():
                 if key.startswith("local_token:"):
-                    tokens[key] = cache.get(key)
+                    val = cache.get(key)
+                    if val:
+                        exp = val.get("expires_at")
+                        tokens[key] = {
+                            "meta": val.get("meta"),
+                            "expires_at": exp,
+                            "ttl_remaining": int(exp) - now if exp else None,
+                        }
         except AttributeError:
             return Response({"error": "Listing not supported for this cache backend"},
                             status=status.HTTP_501_NOT_IMPLEMENTED)
 
+        logger.info(f"[Attendance] 📌 Debug tokens: {tokens}")
         return Response(tokens, status=status.HTTP_200_OK)
 
 
@@ -564,9 +513,6 @@ class DebugTokenListView(APIView):
 # Danh sách sự kiện AttendanceEvent
 # ==============================================================
 class AttendanceEventListView(generics.ListAPIView):
-    """
-    GET /api/attendance/events/?employee_ids=1,2&start=2024-09-01&end=2024-09-30
-    """
     serializer_class = AttendanceEventReadSerializer
 
     def get_queryset(self):
