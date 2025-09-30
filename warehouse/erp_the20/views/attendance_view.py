@@ -350,15 +350,27 @@ def _get_active_employee(emp_id: int):
 def verify_local_token(request):
     token = request.headers.get("X-Local-Access")
     if not token:
-        logger.error("[Attendance] Missing X-Local-Access header")
+        logger.error("[Attendance] ❌ Missing X-Local-Access header")
         raise AuthenticationFailed("Missing X-Local-Access token")
 
-    data = cache.get(f"local_token:{token}")
+    cache_key = f"local_token:{token}"
+    data = cache.get(cache_key)
+
     if not data:
-        logger.error(f"[Attendance] Token invalid or expired: {token}")
+        logger.error(f"[Attendance] ❌ Token invalid or expired: {token}")
         raise AuthenticationFailed("Invalid or expired local access token")
 
+    now = int(time.time())
+    exp = data.get("expires_at")
+    ttl_remaining = exp - now if exp else None
+
+    logger.info(
+        f"[Attendance] 🔑 Verify token OK: {token[:12]}... "
+        f"TTL_remaining={ttl_remaining}s, meta={data.get('meta')}"
+    )
+
     return data
+
 
 
 # ==============================================================
@@ -371,24 +383,65 @@ def verify_local_token(request):
     )
 )
 class ReceiveLocalTokenView(APIView):
+    """
+    Nhận token từ Flask, lưu cache và trả về kết quả kiểm tra
+    """
+
     def post(self, request):
-        token = request.data.get("token")
-        expires_at = request.data.get("expiresAt")
-        meta = request.data.get("meta") or {}
+        try:
+            token = request.data.get("token")
+            expires_at = request.data.get("expiresAt")
+            meta = request.data.get("meta") or {}
 
-        if not token or not expires_at:
-            logger.error("[Attendance] Missing token or expiresAt")
-            return Response({"error": "missing_token"}, status=status.HTTP_400_BAD_REQUEST)
+            if not token or not expires_at:
+                logger.error("[Attendance] ❌ Missing token hoặc expiresAt")
+                return Response({"error": "missing_token_or_expiresAt"},
+                                status=status.HTTP_400_BAD_REQUEST)
 
-        ttl = int(expires_at) - int(time.time())
-        if ttl <= 0:
-            logger.warning(f"[Attendance] Received expired token: {token}")
-            return Response({"error": "expired_token"}, status=status.HTTP_400_BAD_REQUEST)
+            now = int(time.time())
+            ttl = int(expires_at) - now
+            if ttl <= 0:
+                logger.warning(f"[Attendance] ⚠️ Received expired token: {token}")
+                return Response({"error": "expired_token", "now": now, "expires_at": expires_at},
+                                status=status.HTTP_400_BAD_REQUEST)
 
-        cache.set(f"local_token:{token}", {"meta": meta, "expires_at": expires_at}, timeout=ttl)
+            # 1️⃣ Lưu vào cache
+            cache_key = f"local_token:{token}"
+            cache.set(cache_key, {"meta": meta, "expires_at": int(expires_at)}, timeout=ttl)
 
-        logger.info(f"[Attendance] ✅ Token saved: {token}, TTL={ttl}s (expiresAt={expires_at})")
-        return Response({"status": "ok", "token": token, "ttl": ttl}, status=status.HTTP_201_CREATED)
+            logger.info(f"[Attendance] ✅ Token saved: {token}, TTL={ttl}s (exp={expires_at})")
+
+            # 2️⃣ Kiểm tra lại ngay sau khi set
+            cached_value = cache.get(cache_key)
+
+            if not cached_value:
+                logger.error(f"[Attendance] ❌ Token {token} KHÔNG lưu được vào cache")
+                return Response({
+                    "status": "fail",
+                    "reason": "cache_set_failed",
+                    "token": token,
+                    "expires_at": expires_at,
+                    "ttl": ttl
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            # 3️⃣ Trả về chi tiết
+            return Response({
+                "status": "ok",
+                "saved_token": token,
+                "expires_at": int(expires_at),
+                "ttl": ttl,
+                "cached_value": cached_value,
+                "now": now,
+                "debug_note": "Token đã được lưu trong cache, nếu vẫn lỗi khi checkin/checkout thì có thể do frontend không gửi đúng header X-Local-Access hoặc token đã hết hạn."
+            }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            logger.error(f"[Attendance] ❌ Exception khi lưu token: {e}")
+            traceback.print_exc()
+            return Response({
+                "error": "server_error",
+                "message": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 # ==============================================================
@@ -403,6 +456,9 @@ class ReceiveLocalTokenView(APIView):
 class CheckInView(APIView):
     def post(self, request):
         try:
+            token = request.headers.get("X-Local-Access")
+            logger.debug(f"[Attendance] 📨 CheckIn request với token={token}")
+
             claims = verify_local_token(request)
             serializer = AttendanceEventWriteSerializer(data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
@@ -424,7 +480,6 @@ class CheckInView(APIView):
             traceback.print_exc()
             raise DRFValidationError({"detail": str(exc)})
 
-
 # ==============================================================
 # Check-out
 # ==============================================================
@@ -437,6 +492,9 @@ class CheckInView(APIView):
 class CheckOutView(APIView):
     def post(self, request):
         try:
+            token = request.headers.get("X-Local-Access")
+            logger.debug(f"[Attendance] 📨 CheckOut request với token={token}")
+
             claims = verify_local_token(request)
             serializer = AttendanceEventWriteSerializer(data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
