@@ -53,20 +53,22 @@
   <button onclick="sendAttendance('checkout')">Check-out</button>
 
   <div id="log"></div>
-
   <script>
     const FLASK_SERVER   = "https://192.168.1.43:3000"; // Flask token server
-    const DJANGO_BACKEND = "https://barcode.the20.vn";       // Django backend
-
+    const DJANGO_BACKEND = "https://barcode.the20.vn";  // Django backend
+  
+    // Danh sách token còn hạn
+    let activeTokens = [];
+  
     async function sendAttendance(action) {
-      const empId  = document.getElementById("empId").value.trim();
+      const empId   = document.getElementById("empId").value.trim();
       const shiftId = document.getElementById("shiftId").value.trim();
-
+  
       if (!empId) {
         log("❌ Vui lòng nhập Mã nhân viên (số ID)");
         return;
       }
-
+  
       try {
         // 1️⃣ Lấy token từ Flask
         const tokenRes = await fetch(`${FLASK_SERVER}/request-token`, {
@@ -74,17 +76,26 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ empId: empId })
         });
-        if (!tokenRes.ok) throw new Error("Không thể xin token");
-        const { token } = await tokenRes.json();
-        log(`✅ Token: ${token}`);
-
+  
+        if (!tokenRes.ok) {
+          const errText = await tokenRes.text();
+          throw new Error(`Lỗi xin token (${tokenRes.status}): ${errText}`);
+        }
+  
+        const { token, exp } = await tokenRes.json(); // exp = thời gian hết hạn (nếu backend trả về)
+        log(`✅ Token mới: ${token}`);
+        
+        // Thêm vào danh sách token còn hạn
+        activeTokens.push({ token, exp: exp || "Không rõ" });
+        renderTokens();
+  
         // 2️⃣ Gửi dữ liệu tới Django
         const payload = {
-          employee: parseInt(empId, 10),   // gửi PK dạng số nguyên
+          employee: parseInt(empId, 10),
           source: "web"
         };
         if (shiftId) payload.shift_instance = parseInt(shiftId, 10);
-
+  
         const attendanceRes = await fetch(
           `${DJANGO_BACKEND}/the20/attendance/${action}/`,
           {
@@ -96,19 +107,37 @@
             body: JSON.stringify(payload)
           }
         );
-
-        const result = await attendanceRes.json();
-        if (!attendanceRes.ok) throw new Error(JSON.stringify(result));
+  
+        const result = await attendanceRes.json().catch(() => ({}));
+  
+        if (!attendanceRes.ok) {
+          throw new Error(`Lỗi ${action} (${attendanceRes.status}): ${JSON.stringify(result)}`);
+        }
+  
         log(`🎉 ${action.toUpperCase()} thành công:\n${JSON.stringify(result, null, 2)}`);
+  
       } catch (err) {
-        log(`⚠️ Lỗi: ${err}`);
+        log(`⚠️ Lỗi: ${err.message}`);
       }
     }
-
+  
+    // Hiển thị log
     function log(msg) {
       const logDiv = document.getElementById("log");
       logDiv.textContent += msg + "\n";
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+  
+    // Render danh sách token còn hạn
+    function renderTokens() {
+      const logDiv = document.getElementById("log");
+      logDiv.textContent += "\n📌 Danh sách token còn hạn:\n";
+      activeTokens.forEach((t, i) => {
+        logDiv.textContent += `${i + 1}. ${t.token} (hết hạn: ${t.exp})\n`;
+      });
+      logDiv.textContent += "--------------------------\n";
     }
   </script>
+  
 </body>
 </html>
