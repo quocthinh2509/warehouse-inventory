@@ -2,8 +2,6 @@ from django.core.exceptions import ValidationError
 from erp_the20.models import (
     ShiftTemplate,
     ShiftInstance,
-    ShiftAssignment,
-    ShiftRegistration,
 )
 from django.utils import timezone
 
@@ -83,70 +81,3 @@ def delete_shift_instance(instance: ShiftInstance) -> None:
     """Xóa ShiftInstance."""
     instance.delete()
 
-
-# ============================================================
-#  SHIFT ASSIGNMENT (Gán ca cho nhân viên)
-# ============================================================
-
-def assign_employee_to_shift(data: dict) -> ShiftAssignment:
-    """
-    Gán nhân viên vào ca cụ thể.
-    Args:
-        data: {"employee": Employee, "shift_instance": ShiftInstance, "assigned_by": User, "status": str}
-    Raises:
-        ValidationError: nếu nhân viên đã được gán ca này
-    """
-    if ShiftAssignment.objects.filter(employee=data["employee"], shift_instance=data["shift_instance"]).exists():
-        raise ValidationError("Employee already assigned to this shift")
-    return ShiftAssignment.objects.create(**data)
-
-
-def update_shift_assignment(assignment: ShiftAssignment, data: dict) -> ShiftAssignment:
-    """
-    Cập nhật thông tin gán ca.
-    """
-    for field in ["employee", "shift_instance", "assigned_by", "status"]:
-        if field in data:
-            setattr(assignment, field, data[field])
-
-    assignment.save()
-    return assignment
-
-
-def delete_shift_assignment(assignment: ShiftAssignment) -> None:
-    """Xóa ShiftAssignment."""
-    assignment.delete()
-
-
-# ============================================================
-#  SHIFT REGISTRATION (Đăng ký ca)
-# ============================================================
-
-def register_shift(data: dict) -> ShiftRegistration:
-    """
-    Nhân viên đăng ký ca làm việc.
-    Args:
-        data: {"employee": Employee, "shift_instance": ShiftInstance, "created_by": User, "status": str, "reason": str}
-    Raises:
-        ValidationError: nếu nhân viên đã đăng ký ca này
-    """
-    if ShiftRegistration.objects.filter(employee=data["employee"], shift_instance=data["shift_instance"]).exists():
-        raise ValidationError("Employee already registered for this shift")
-    return ShiftRegistration.objects.create(**data)
-
-
-def update_shift_registration(registration: ShiftRegistration, data: dict) -> ShiftRegistration:
-    """
-    Cập nhật thông tin đăng ký ca.
-    """
-    for field in ["employee", "shift_instance", "created_by", "status", "reason"]:
-        if field in data:
-            setattr(registration, field, data[field])
-
-    registration.save()
-    return registration
-
-
-def delete_shift_registration(registration: ShiftRegistration) -> None:
-    """Xóa ShiftRegistration."""
-    registration.delete()

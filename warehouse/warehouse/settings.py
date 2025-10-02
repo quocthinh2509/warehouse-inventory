@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'erp_the20',
     'api',
+    'jira',
 ]
 
 MIDDLEWARE = [
@@ -193,4 +194,6 @@ CACHES = {
         "LOCATION": "redis://:The20@12345@127.0.0.1:6379/1",
     }
 }
+
+
 

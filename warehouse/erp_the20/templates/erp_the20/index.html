@@ -58,7 +58,7 @@
   <div id="log"></div>
   <script>
     const FLASK_SERVER   = "https://192.168.1.43:3000"; // Flask token server
-    const DJANGO_BACKEND = "https://barcode.the20.vn";  // Django backend
+    const DJANGO_BACKEND = "http://http://192.168.1.23:2326/";  // Django backend
   
     // Danh sách token còn hạn
     let activeTokens = [];
@@ -105,7 +105,7 @@
         if (shiftId) payload.shift_instance = parseInt(shiftId, 10);
   
         const attendanceRes = await fetch(
-          `${DJANGO_BACKEND}/the20/attendance/${action}/`,
+          `${DJANGO_BACKEND}/api/v2/erp/${action}/`,
           {
             method: "POST",
             headers: {

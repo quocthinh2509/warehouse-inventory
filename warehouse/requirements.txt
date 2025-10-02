@@ -13,3 +13,4 @@ drf-spectacular
 psycopg2-binary
 django-cors-headers
 redis>=5.0.0
+requests

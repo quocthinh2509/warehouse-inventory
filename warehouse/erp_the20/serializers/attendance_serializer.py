@@ -2,9 +2,14 @@
 from rest_framework import serializers
 from erp_the20.models import AttendanceEvent, AttendanceSummary, AttendanceCorrection
 from erp_the20.serializers.shift_serializer import ShiftInstanceReadSerializer
-from erp_the20.serializers.employee_serializer import EmployeeReadSerializer
 
+
+# =========================
+# AttendanceEvent
+# =========================
 class AttendanceEventWriteSerializer(serializers.ModelSerializer):
+    employee = serializers.IntegerField()  # thay vì ForeignKey
+
     class Meta:
         model = AttendanceEvent
         fields = [
@@ -20,8 +25,9 @@ class AttendanceEventWriteSerializer(serializers.ModelSerializer):
 
 
 class AttendanceEventReadSerializer(serializers.ModelSerializer):
-    employee = EmployeeReadSerializer(read_only=True)
+    employee = serializers.IntegerField(read_only=True)  # chỉ trả về int
     shift_instance = ShiftInstanceReadSerializer(read_only=True)
+
     class Meta:
         model = AttendanceEvent
         fields = [
@@ -39,8 +45,9 @@ class AttendanceEventReadSerializer(serializers.ModelSerializer):
 # =========================
 # AttendanceSummary
 # =========================
-
 class AttendanceSummaryWriteSerializer(serializers.ModelSerializer):
+    employee = serializers.IntegerField()
+
     class Meta:
         model = AttendanceSummary
         fields = [
@@ -59,7 +66,8 @@ class AttendanceSummaryWriteSerializer(serializers.ModelSerializer):
 
 
 class AttendanceSummaryReadSerializer(serializers.ModelSerializer):
-    employee = EmployeeReadSerializer(read_only=True)
+    employee = serializers.IntegerField(read_only=True)
+
     class Meta:
         model = AttendanceSummary
         fields = [
@@ -80,8 +88,9 @@ class AttendanceSummaryReadSerializer(serializers.ModelSerializer):
 # =========================
 # AttendanceCorrection
 # =========================
-
 class AttendanceCorrectionWriteSerializer(serializers.ModelSerializer):
+    employee = serializers.IntegerField()
+
     class Meta:
         model = AttendanceCorrection
         fields = [
@@ -97,8 +106,8 @@ class AttendanceCorrectionWriteSerializer(serializers.ModelSerializer):
 
 
 class AttendanceCorrectionReadSerializer(serializers.ModelSerializer):
-    employee = EmployeeReadSerializer(read_only=True)
-    
+    employee = serializers.IntegerField(read_only=True)
+
     class Meta:
         model = AttendanceCorrection
         fields = [

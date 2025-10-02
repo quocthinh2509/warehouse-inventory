@@ -99,7 +99,7 @@ def add_check_in(*, employee, valid, source, shift_instance_id: Optional[int] = 
     inst = _get_shift_instance(ts, shift_instance_id, mode="in")
 
     ev = AttendanceEvent.objects.create(
-        employee=employee,
+        employee_id=employee,
         shift_instance=inst,
         event_type="in",
         ts=ts,
@@ -131,7 +131,7 @@ def add_check_out(*, employee, valid, source, shift_instance_id: Optional[int] =
     inst = _get_shift_instance(ts, shift_instance_id, mode="out")
 
     ev = AttendanceEvent.objects.create(
-        employee=employee,
+        employee_id=employee,
         shift_instance=inst,
         event_type="out",
         ts=ts,
@@ -140,7 +140,7 @@ def add_check_out(*, employee, valid, source, shift_instance_id: Optional[int] =
         is_valid=bool(valid),
     )
 
-    _rollup_summary(employee.id, ts.date(), inst)
+    _rollup_summary(employee, ts.date(), inst)
     return ev
 
 
