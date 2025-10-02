@@ -227,3 +227,51 @@ class AttendanceStatsView(APIView):
             "on_time": on_time,
         }
         return Response(data, status=status.HTTP_200_OK)
+
+class AttendanceWithUserView(APIView):
+    """
+    API lấy AttendanceEvent join với User,
+    cho phép filter theo username, ngày, event_type.
+    """
+
+    def get(self, request):
+        username = request.query_params.get("username")
+        start = request.query_params.get("start")   # format: YYYY-MM-DD
+        end = request.query_params.get("end")       # format: YYYY-MM-DD
+        event_type = request.query_params.get("event_type")  # "in" hoặc "out"
+
+        try:
+            start_date = datetime.strptime(start, "%Y-%m-%d").date() if start else None
+            end_date = datetime.strptime(end, "%Y-%m-%d").date() if end else None
+        except ValueError:
+            return Response({"error": "Ngày không đúng định dạng (YYYY-MM-DD)"}, status=status.HTTP_400_BAD_REQUEST)
+
+        rows = attendance_selector.join_attendance_with_user(
+            username=username,
+            start=start_date,
+            end=end_date,
+            event_type=event_type
+        )
+
+        return Response(rows, status=status.HTTP_200_OK)
+
+
+class GetLastEvent(APIView):
+    """
+    API lấy sự kiện chấm công gần nhất của nhân viên
+    Query params:
+        ?employee=101
+    """
+
+    def get(self, request):
+        employee = request.query_params.get("employee")
+
+        if not employee:
+            return Response({"error": "employee is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        ev = attendance_selector.get_last_event(int(employee))
+        if not ev:
+            return Response({"detail": "No events found"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = AttendanceEventReadSerializer(ev)
+        return Response(serializer.data, status=status.HTTP_200_OK)

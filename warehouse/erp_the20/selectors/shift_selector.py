@@ -6,6 +6,7 @@ from erp_the20.models import (
 from datetime import date, datetime, timedelta
 
 
+
 # ============================================================
 #  SHIFT TEMPLATE
 # ============================================================
