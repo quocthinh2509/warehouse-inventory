@@ -176,7 +176,6 @@ class AttendanceEventListByDatesView(APIView):
         serializer = AttendanceEventReadSerializer(events, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-
 class AttendanceStatsView(APIView):
     """
     API thống kê:
@@ -188,14 +187,16 @@ class AttendanceStatsView(APIView):
     @extend_schema(
         parameters=[
             OpenApiParameter(
-                "date",
-                str,
-                description="Ngày (YYYY-MM-DD). Nếu bỏ trống thì lấy ngày hôm nay"
+                name="date",
+                type=str,
+                description="Ngày (YYYY-MM-DD). Nếu bỏ trống thì lấy ngày hôm nay",
+                required=False,
             )
         ],
         description="Thống kê số nhân viên đi trễ, đúng giờ, đang trong ca."
     )
     def get(self, request):
+        # --- Lấy và validate tham số ngày ---
         date_str = request.query_params.get("date")
         if date_str:
             try:
@@ -208,9 +209,17 @@ class AttendanceStatsView(APIView):
         else:
             today = timezone.localdate()
 
-        currently_in = attendance_selector.count_currently_clocked_in()
-        late, on_time = attendance_selector.count_late_and_ontime(today)
+        # --- Lấy dữ liệu thống kê ---
+        try:
+            currently_in = attendance_selector.count_currently_clocked_in()
+            late, on_time = attendance_selector.count_late_and_ontime(today)
+        except Exception as e:
+            return Response(
+                {"detail": f"Internal error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
+        # --- Kết quả ---
         data = {
             "date": str(today),
             "currently_clocked_in": currently_in,

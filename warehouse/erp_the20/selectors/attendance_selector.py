@@ -2,6 +2,7 @@ from erp_the20.models import AttendanceEvent, AttendanceSummary, ShiftInstance
 from typing import Optional, Iterable
 from datetime import date
 from django.db.models import QuerySet
+from typing import Tuple
 # from erp_the20.selectors.shift_selector import get_shift_instance_by_date_and_employee
 
 from django.db.models import OuterRef, Exists, Min
@@ -76,38 +77,33 @@ def list_attendance_events(
         qs = qs.filter(ts__date__lte=end)
     return qs
 
-# =============================
-# ĐANG TRONG CA
-# =============================
+
 def count_currently_clocked_in() -> int:
     """
-    Số nhân viên đã check-in nhưng chưa check-out (tính đến thời điểm hiện tại).
-    Dựa trên AttendanceEvent và shift_instance.
+    Đếm số nhân viên đang trong ca (check-in gần nhất là 'in', chưa có check-out sau đó).
     """
-    subquery = AttendanceEvent.objects.filter(
-        employee_id=OuterRef("employee_id"),
-        ts__gt=OuterRef("ts")
-    ).values("employee_id")
+    # Lấy event mới nhất của mỗi nhân viên
+    last_event = (
+        AttendanceEvent.objects
+        .filter(employee_id=OuterRef("employee_id"))
+        .order_by("-ts")
+    )
 
-    currently_clocked_in_count = (
-        AttendanceEvent.objects.filter(event_type="in")
-        .annotate(has_later_event=Exists(subquery))
-        .filter(has_later_event=False)
+    currently_in = (
+        AttendanceEvent.objects
+        .filter(id=Subquery(last_event.values("id")[:1]))
+        .filter(event_type="in")
         .values("employee_id")
         .distinct()
         .count()
     )
+    return currently_in
 
-    return currently_clocked_in_count
 
-
-# =============================
-# ĐI TRỄ & ĐÚNG GIỜ
-# =============================
-def count_late_and_ontime(today: date | None = None) -> tuple[int, int]:
+def count_late_and_ontime(today: date = None) -> Tuple[int, int]:
     """
-    Trả về (số người đi trễ, số người đúng giờ) trong ngày.
-    Dựa trực tiếp vào shift_instance gắn với AttendanceEvent.
+    Đếm số nhân viên đi trễ và đúng giờ trong ngày.
+    Trả về (late_count, ontime_count).
     """
     if today is None:
         today = timezone.localdate()
@@ -115,30 +111,40 @@ def count_late_and_ontime(today: date | None = None) -> tuple[int, int]:
     late_count = 0
     ontime_count = 0
 
-    # Lấy tất cả AttendanceEvent "in" có shift_instance trong ngày
-    events = AttendanceEvent.objects.select_related("shift_instance__template").filter(
-        event_type="in",
-        ts__date=today,
-        shift_instance__date=today
+    # Lấy các sự kiện check-in trong ngày có gắn shift_instance
+    events = (
+        AttendanceEvent.objects
+        .select_related("shift_instance", "shift_instance__template")
+        .filter(
+            event_type="in",
+            ts__date=today,
+            shift_instance__date=today
+        )
+        .order_by("ts")
     )
 
-    # group theo nhân viên
+    # Lấy lần checkin đầu tiên của từng nhân viên
     employee_first_checkin = {}
-    for ev in events.order_by("ts"):
-        eid = ev.employee_id
-        if eid not in employee_first_checkin:
-            employee_first_checkin[eid] = ev
+    for ev in events:
+        if ev.employee_id not in employee_first_checkin:
+            employee_first_checkin[ev.employee_id] = ev
 
     for ev in employee_first_checkin.values():
         shift = ev.shift_instance
         if not shift or not shift.template:
             continue
 
+    # Nếu shift chưa có start_time thì bỏ qua
+        if not shift.template.start_time:
+            continue
+
         shift_start = datetime.combine(today, shift.template.start_time)
+        shift_start = timezone.make_aware(shift_start, timezone.get_current_timezone())
 
         if ev.ts > shift_start:
             late_count += 1
         else:
             ontime_count += 1
+
 
     return late_count, ontime_count
