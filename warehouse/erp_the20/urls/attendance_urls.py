@@ -8,7 +8,7 @@ from erp_the20.views.attendance_view import (
     AttendanceEventListView,
     AttendanceSummaryListView,
     AttendanceStatsView,
-    AttendanceWithUserView,
+    ListAttendanceEvent,
     GetLastEvent,
 )
 
@@ -18,7 +18,7 @@ urlpatterns = [
     path("events/", AttendanceEventListView.as_view(), name="attendance-events"),
     path("summaries/", AttendanceSummaryListView.as_view(), name="attendance-summaries"),
     path("stats/", AttendanceStatsView.as_view(), name="attendance-stats"),
-    path("attendance-with-user/", AttendanceWithUserView.as_view(), name="attendance-stats-employee"),
+    path("list-events/", ListAttendanceEvent.as_view(), name="attendance-stats-employee"),
     path("get-last-event/",GetLastEvent.as_view(), name="get-last-event")
 
 ]

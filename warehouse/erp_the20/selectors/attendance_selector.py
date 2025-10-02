@@ -9,7 +9,7 @@ from django.db.models import OuterRef, Exists, Min
 
 from django.utils import timezone
 from django.db.models import OuterRef, Exists, Subquery, Min, F
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from django.db import connections
 
 from erp_the20.selectors.shift_selector import list_today_shift_instances
@@ -150,46 +150,70 @@ def count_late_and_ontime(today: date = None) -> Tuple[int, int]:
 
     return late_count, ontime_count
 
-def join_attendance_with_user(
+def list_attendance_full(
+    employee_ids: Optional[Iterable[int]] = None,
     username: Optional[str] = None,
     start: Optional[date] = None,
     end: Optional[date] = None,
     event_type: Optional[str] = None,
 ):
     """
-    Lấy AttendanceEvent join với bảng user,
-    cho phép filter theo username, khoảng ngày, và event_type.
+    Trả về AttendanceEvent objects (RawQuerySet) nhưng có thêm thông tin từ User, ShiftInstance và ShiftTemplate.
     """
-    sql = '''
-        SELECT eta.id, eta.employee_id, eta.ts, eta.event_type, 
-               u."UserName", u.email
+    sql = """
+        SELECT
+            eta.*,                                -- toàn bộ AttendanceEvent
+            u."UserName" AS username,
+            u.email AS email,
+            si.date AS shift_date,
+            si.status AS shift_status,
+            st.code AS template_code,
+            st.name AS template_name,
+            st.start_time AS template_start,
+            st.end_time AS template_end,
+            st.break_minutes,
+            st.overnight
         FROM erp_the20_attendanceevent eta
         JOIN "user" u ON eta.employee_id = u.id
+        LEFT JOIN erp_the20_shiftinstance si ON eta.shift_instance_id = si.id
+        LEFT JOIN erp_the20_shifttemplate st ON si.template_id = st.id
         WHERE 1=1
-    '''
+    """
     params = []
 
-    # Filter theo username
+    if employee_ids:
+        placeholders = ",".join(["%s"] * len(employee_ids))
+        sql += f" AND eta.employee_id IN ({placeholders})"
+        params.extend(employee_ids)
+
     if username:
         sql += ' AND u."UserName" = %s'
         params.append(username)
 
-    # Filter theo ngày
     if start:
-        sql += ' AND eta.ts::date >= %s'
+        sql += " AND eta.ts::date >= %s"
         params.append(start)
     if end:
-        sql += ' AND eta.ts::date <= %s'
+        sql += " AND eta.ts::date <= %s"
         params.append(end)
 
-    # Filter theo event_type
     if event_type:
-        sql += ' AND eta.event_type = %s'
+        sql += " AND eta.event_type = %s"
         params.append(event_type)
 
-    sql += ' ORDER BY eta.ts DESC'
+    sql += " ORDER BY eta.ts DESC"
 
-    with connections['erp_postgres'].cursor() as cursor:
-        cursor.execute(sql, params)
-        columns = [col[0] for col in cursor.description]
-        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    return AttendanceEvent.objects.raw(sql, params)
+
+
+def get_last_attendance_event_by_date(employee_id: int, day: date) -> Optional[AttendanceEvent]:
+    """
+    Trả về AttendanceEvent cuối cùng (ts lớn nhất) trong NGÀY `day` của employee_id.
+    Mặc định lọc is_valid=True và tính ngày theo timezone hiện tại của Django.
+    """
+    return (
+        AttendanceEvent.objects
+        .filter(employee_id=employee_id,ts__date = day)
+        .order_by("-ts")
+        .first()
+    )

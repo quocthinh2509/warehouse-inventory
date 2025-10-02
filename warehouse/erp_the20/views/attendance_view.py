@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -161,7 +163,7 @@ class AttendanceEventListByDateView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 class AttendanceEventListByDatesView(APIView):
-    def get(seft,request):
+    def get(self, request):
         """
         API list attendance events của nhân viên theo nhiều ngày
         Query params:
@@ -228,32 +230,99 @@ class AttendanceStatsView(APIView):
         }
         return Response(data, status=status.HTTP_200_OK)
 
-class AttendanceWithUserView(APIView):
+class ListAttendanceEvent(APIView):
     """
-    API lấy AttendanceEvent join với User,
-    cho phép filter theo username, ngày, event_type.
+    API lấy AttendanceEvent (join User/ShiftInstance/ShiftTemplate)
+    Hỗ trợ filter theo: employee_id (1 hoặc nhiều, cách nhau bằng dấu phẩy),
+    username, start, end (YYYY-MM-DD), event_type ('in' | 'out').
     """
 
     def get(self, request):
+        # --- Lấy query params ---
+        employee_id_param = request.query_params.get("employee_id")  # vd: "12" hoặc "12,13,99"
         username = request.query_params.get("username")
-        start = request.query_params.get("start")   # format: YYYY-MM-DD
-        end = request.query_params.get("end")       # format: YYYY-MM-DD
+        start = request.query_params.get("start")   # "YYYY-MM-DD"
+        end = request.query_params.get("end")       # "YYYY-MM-DD"
         event_type = request.query_params.get("event_type")  # "in" hoặc "out"
 
+        # --- Parse employee_ids ---
+        employee_ids = None
+        if employee_id_param:
+            try:
+                employee_ids = [
+                    int(x) for x in str(employee_id_param).replace(" ", "").split(",") if x
+                ]
+            except ValueError:
+                return Response(
+                    {"error": "employee_id phải là số hoặc danh sách số, ngăn cách bằng dấu phẩy."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # --- Validate event_type ---
+        if event_type and event_type not in {"in", "out"}:
+            return Response(
+                {"error": "event_type chỉ nhận 'in' hoặc 'out'."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # --- Parse & validate dates ---
         try:
             start_date = datetime.strptime(start, "%Y-%m-%d").date() if start else None
             end_date = datetime.strptime(end, "%Y-%m-%d").date() if end else None
         except ValueError:
-            return Response({"error": "Ngày không đúng định dạng (YYYY-MM-DD)"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Ngày không đúng định dạng (YYYY-MM-DD)."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        rows = attendance_selector.join_attendance_with_user(
+        if start_date and end_date and start_date > end_date:
+            return Response(
+                {"error": "start không thể lớn hơn end."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # --- Gọi selector ---
+        rows = attendance_selector.list_attendance_full(
+            employee_ids=employee_ids,
             username=username,
             start=start_date,
             end=end_date,
             event_type=event_type
         )
 
-        return Response(rows, status=status.HTTP_200_OK)
+        # --- Serialize RawQuerySet -> list[dict] ---
+        data = []
+        for r in rows:
+            item = {
+                # Fields từ AttendanceEvent (eta.*)
+                "id": getattr(r, "id", None),
+                "employee_id": getattr(r, "employee_id", None),
+                "ts": r.ts.isoformat() if getattr(r, "ts", None) else None,
+                "event_type": getattr(r, "event_type", None),
+                "shift_instance_id": getattr(r, "shift_instance_id", None),
+
+                # Các cột thêm từ JOIN
+                "username": getattr(r, "username", None),
+                "email": getattr(r, "email", None),
+                "shift_date": getattr(r, "shift_date", None).isoformat()
+                    if getattr(r, "shift_date", None) is not None else None,
+                "shift_status": getattr(r, "shift_status", None),
+                "template_code": getattr(r, "template_code", None),
+                "template_name": getattr(r, "template_name", None),
+                "template_start": str(getattr(r, "template_start", None))
+                    if getattr(r, "template_start", None) else None,
+                "template_end": str(getattr(r, "template_end", None))
+                    if getattr(r, "template_end", None) else None,
+                "break_minutes": getattr(r, "break_minutes", None),
+                "overnight": getattr(r, "overnight", None),
+            }
+            data.append(item)
+
+        return Response(
+            {"count": len(data), "results": data},
+            status=status.HTTP_200_OK
+        )
+    
 
 
 class GetLastEvent(APIView):
@@ -269,7 +338,7 @@ class GetLastEvent(APIView):
         if not employee:
             return Response({"error": "employee is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        ev = attendance_selector.get_last_event(int(employee))
+        ev = attendance_selector.get_last_attendance_event_by_date(int(employee), timezone.localdate())
         if not ev:
             return Response({"detail": "No events found"}, status=status.HTTP_404_NOT_FOUND)
 
