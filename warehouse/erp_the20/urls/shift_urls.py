@@ -16,5 +16,5 @@ urlpatterns = [
     path("instances/", ShiftInstanceListCreate.as_view(), name="shift-instance-list"),
     path("instances/<int:pk>/", ShiftInstanceDetail.as_view(), name="shift-instance-detail"),
 
-    path("instances/today/", ShiftInstanceListCreate.as_view(), name="shift-instance-today"),
+    path("instances/today/", ShiftInstancesTodayView.as_view(), name="shift-instance-today"),
 ]

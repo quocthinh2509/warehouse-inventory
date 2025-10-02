@@ -91,7 +91,7 @@ DATABASES = {
     },
     'erp_postgres': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'erpdb',
+        'NAME': 'erp',
         'USER': 'admin01',
         'PASSWORD': 'THE20@12345',
         'HOST': '45.76.159.161',

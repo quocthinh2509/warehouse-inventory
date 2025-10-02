@@ -74,7 +74,6 @@ def list_attendance_events(
         qs = qs.filter(ts__date__gte=start)
     if end:
         qs = qs.filter(ts__date__lte=end)
-
     return qs
 
 # =============================

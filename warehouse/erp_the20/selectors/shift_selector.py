@@ -85,4 +85,5 @@ def list_today_shift_instances() -> list[ShiftInstance]:
     utc_now = datetime.utcnow()
     vn_now = utc_now + timedelta(hours=7)
     today = vn_now.date()
-    return list_shift_instances(date_from=today, date_to=today)
+    qs = ShiftInstance.objects.select_related("template").filter(date=today)
+    return list(qs)
