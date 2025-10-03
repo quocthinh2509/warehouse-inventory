@@ -66,13 +66,11 @@ class AttendanceSummaryWriteSerializer(serializers.ModelSerializer):
 
 
 class AttendanceSummaryReadSerializer(serializers.ModelSerializer):
-    employee = serializers.IntegerField(read_only=True)
-
     class Meta:
         model = AttendanceSummary
         fields = [
             "id",
-            "employee",
+            "employee_id",
             "date",
             "planned_minutes",
             "worked_minutes",

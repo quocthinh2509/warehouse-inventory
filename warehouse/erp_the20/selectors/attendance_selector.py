@@ -79,7 +79,7 @@ def list_attendance_events(
     return qs
 
 
-def count_currently_clocked_in() -> int:
+def count_currently_clocked_in() -> int: # cái này giữ nguyên
     """
     Đếm số nhân viên đang trong ca (check-in gần nhất là 'in', chưa có check-out sau đó).
     """
