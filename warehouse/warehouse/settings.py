@@ -45,7 +45,6 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'erp_the20',
     'api',
-    'jira',
 ]
 
 MIDDLEWARE = [
