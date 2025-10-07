@@ -96,6 +96,15 @@ DATABASES = {
         'HOST': '45.76.159.161',
         'PORT': '5432',
     },
+    'ecom_platform':{
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'ecom-platform',
+        'USER': 'admin01',
+        'PASSWORD': 'THE20@12345',
+        'HOST': '45.76.159.161',
+        'PORT': '5432',
+    },
+
 
 
 }
@@ -195,4 +204,34 @@ CACHES = {
 }
 
 
+# ===== Email (Gmail - hardcoded) =====
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "smtp.gmail.com"
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
 
+EMAIL_HOST_USER = "thinhgpt2509@gmail.com"
+EMAIL_HOST_PASSWORD = "wypjupsdzulehpmz"  # App Password 16 ký tự, KHÔNG có khoảng trắng
+
+DEFAULT_FROM_EMAIL = "thinhgpt2509@gmail.com"
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
+EMAIL_TIMEOUT = 20
+EMAIL_SUBJECT_PREFIX = "[THE20] "
+
+
+
+# ===== Lark / Feishu Webhook =====
+# Webhook của bot trong group Lark (dạng: https://open.feishu.cn/open-apis/bot/v2/hook/XXXXX)
+LARK_LEAVE_WEBHOOK_URL = "https://open.larksuite.com/open-apis/bot/v2/hook/3f29cd9b-8fd7-45a2-bdec-c9130924698c"
+
+# (Tuỳ chọn) Map employee/manager ID -> open_id của Lark để @mention
+# Muốn @ vào text: <at user_id="ou_xxx">Tên</at>
+LARK_AT_MANAGER_IDS = {
+    # 9001: "ou_aaaaaaaaaaaaaa",
+}
+LARK_AT_EMPLOYEE_IDS = {
+    # 204: "ou_bbbbbbbbbbbbbb",
+}
+
+# Thời gian chờ request
+LARK_TIMEOUT = 8

@@ -1,4 +1,4 @@
-from erp_the20.models import AttendanceEvent, AttendanceSummary, ShiftInstance
+from erp_the20.models import AttendanceEvent, AttendanceSummary, ShiftInstance, AttendanceSummaryV2
 from typing import Optional, Iterable
 from datetime import date
 from django.db.models import QuerySet
@@ -217,3 +217,5 @@ def get_last_attendance_event_by_date(employee_id: int, day: date) -> Optional[A
         .order_by("-ts")
         .first()
     )
+
+

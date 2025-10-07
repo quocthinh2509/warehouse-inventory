@@ -46,7 +46,7 @@ def update_position(pos: Position, data: dict) -> Position:
         pos.name = data["name"]
 
     if "default_department" in data:
-        pos.default_department = data["default_department"]
+        pos.department = data["default_department"]
 
     pos.save()
     return pos

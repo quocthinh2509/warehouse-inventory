@@ -4,7 +4,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from drf_spectacular.utils import extend_schema, OpenApiParameter
-
+from typing import List, Optional
 from django.utils import timezone
 
 from erp_the20.serializers.attendance_serializer import (
@@ -16,72 +16,6 @@ from erp_the20.serializers.attendance_serializer import (
 
 from erp_the20.services import attendance_service
 from erp_the20.selectors import attendance_selector
-
-
-# =========================
-# Attendance Events
-# =========================
-
-class AttendanceCheckInView(APIView):
-    """
-    API để nhân viên check-in
-    Body:
-    {
-        "employee": 101,
-        "valid": true,
-        "source": "mobile",
-        "shift_instance": 1  (optional)
-    }
-    """
-
-    def post(self, request):
-        employee = request.data.get("employee")
-        valid = request.data.get("valid", True)
-        source = request.data.get("source", "unknown")
-        shift_instance_id = request.data.get("shift_instance")
-
-        if not employee:
-            return Response({"error": "employee is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        ev = attendance_service.add_check_in(
-            employee=employee,
-            valid=valid,
-            source=source,
-            shift_instance_id=shift_instance_id,
-        )
-        serializer = AttendanceEventReadSerializer(ev)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-
-class AttendanceCheckOutView(APIView):
-    """
-    API để nhân viên check-out
-    Body:
-    {
-        "employee": 101,
-        "valid": true,
-        "source": "mobile",
-        "shift_instance": 1  (optional)
-    }
-    """
-
-    def post(self, request):
-        employee = request.data.get("employee")
-        valid = request.data.get("valid", True)
-        source = request.data.get("source", "unknown")
-        shift_instance_id = request.data.get("shift_instance")
-
-        if not employee:
-            return Response({"error": "employee is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        ev = attendance_service.add_check_out(
-            employee=employee,
-            valid=valid,
-            source=source,
-            shift_instance_id=shift_instance_id,
-        )
-        serializer = AttendanceEventReadSerializer(ev)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class AttendanceEventListView(APIView):
@@ -142,6 +76,9 @@ class AttendanceSummaryListView(APIView):
             summaries = attendance_selector.list_all_summaries()
             serializer = AttendanceSummaryReadSerializer(summaries, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
+    
+
+
 
 
 class AttendanceEventListByDateView(APIView):
@@ -344,3 +281,90 @@ class GetLastEvent(APIView):
 
         serializer = AttendanceEventReadSerializer(ev)
         return Response(serializer.data, status=status.HTTP_200_OK)
+    
+
+
+
+class TodaySummaryView(APIView):
+    """
+    GET /api/attendance/summary/today?employee=101
+
+    - FE chỉ truyền employee id.
+    - Server tự lấy ngày hôm nay theo timezone của Django (timezone.localdate()).
+    - Luôn gọi build_daily_summary để đảm bảo dữ liệu mới nhất rồi trả về summary.
+    """
+    # permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        employee = request.query_params.get("employee")
+        if not employee:
+            return Response({"error": "employee is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            employee_id = int(employee)
+        except (TypeError, ValueError):
+            return Response({"error": "employee must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Không truyền date => service tự dùng timezone.localdate()
+            summary = attendance_service.build_daily_summary(employee_id)
+            data = AttendanceSummaryReadSerializer(summary).data
+            # Thêm thông tin ngày server để FE debug nếu cần
+            #data["_server_date"] = timezone.localdate().isoformat()
+            return Response(data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response(
+                {"error": "failed_to_build_summary", "detail": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class RebuildSummariesTodayView(APIView):
+    """
+    POST /api/attendance/summary/rebuild-today
+    Body (tùy chọn):
+    {
+      "employee_ids": [101, 102, 103]   # nếu bỏ trống: rebuild tất cả NV có event/leave hôm nay
+    }
+
+    - Server tự lấy ngày hôm nay.
+    - Dùng rebuild_summaries_for_date(...) => trả về số lượng summary đã rebuild.
+    """
+    # permission_classes = [permissions.IsAuthenticated]  # Có thể siết chặt: [permissions.IsAdminUser]
+
+    def post(self, request):
+        employee_ids: Optional[List[int]] = request.data.get("employee_ids")
+
+        if employee_ids is not None and not isinstance(employee_ids, list):
+            return Response(
+                {"error": "employee_ids must be a list of integers"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if isinstance(employee_ids, list):
+            # Validate list phần tử phải là int
+            try:
+                employee_ids = [int(x) for x in employee_ids]
+            except (TypeError, ValueError):
+                return Response(
+                    {"error": "employee_ids elements must be integers"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        try:
+            rebuilt_count = attendance_service.rebuild_summaries_for_date(employee_ids=employee_ids)
+            return Response(
+                {
+                    "date": timezone.localdate().isoformat(),
+                    "rebuilt": rebuilt_count,
+                    "filtered_by_employee_ids": bool(employee_ids),
+                    "employee_ids": employee_ids or [],
+                },
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return Response(
+                {"error": "failed_to_rebuild_summaries", "detail": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

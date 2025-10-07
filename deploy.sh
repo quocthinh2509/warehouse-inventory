@@ -10,7 +10,7 @@ SERVER_ADDRESS=$1
 
 # Upload toàn bộ folder warehouse lên server bằng rsync
 echo "Upload toàn bộ folder warehouse lên server..."
-rsync -avz --progress ./ $SERVER_ADDRESS:/var/www/warehouse/
+scp -r ./warehouse/* $SERVER_ADDRESS:/var/www/warehouse/warehouse/
 
 # SSH vào server để deploy container
 ssh $SERVER_ADDRESS bash -s <<'ENDSSH'
@@ -25,6 +25,7 @@ if [ $(docker ps -aq -f name=warehouse) ]; then
     echo "Xóa container cũ..."
     docker rm warehouse
 fi
+
 
 cd /var/www/warehouse/warehouse
 
