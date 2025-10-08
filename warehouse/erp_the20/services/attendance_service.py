@@ -1,344 +1,468 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-from datetime import date, datetime, time, timedelta
-from typing import Optional, Tuple, List, Dict
+from typing import Optional, Tuple, List, Dict, Any
+from datetime import datetime, timedelta, date as date_type
+import logging
 
-from django.db import transaction
+from django.db import transaction, IntegrityError, connection
 from django.utils import timezone
+from django.conf import settings
 
-from erp_the20.models import (
-    AttendanceEvent,
-    AttendanceSummary,
-    LeaveRequest,
-    ShiftInstance,
+from erp_the20.models import Attendance, ShiftTemplate, LeaveRequest
+from erp_the20.selectors.user_selector import get_external_users_map  # <-- dùng map user
+from erp_the20.utils.notify import (
+    send_lark_notification,
+    send_email_notification,
 )
 
-GRACE_MINUTES = 5
+logger = logging.getLogger(__name__)
 
-# Bật/tắt debug print
-DEBUG_ATT = True
-def _p(msg: str, *args):
-    if DEBUG_ATT:
-        try:
-            print(msg % args)
-        except Exception:
-            # fallback nếu format sai
-            print(msg, *args)
+# ========= helper về DB lock =========
+def _supports_for_update() -> bool:
+    return getattr(connection.features, "has_select_for_update", False)
 
-# ====== Time helpers ======
-def _resolve_date(d: Optional[date]) -> date:
-    out = d or timezone.localdate()
-    _p("[_resolve_date] in=%s -> out=%s", d, out)
+def _for_update(qs):
+    return qs.select_for_update() if _supports_for_update() else qs
+
+# ========= helper về time window =========
+def _aware(dt: datetime) -> datetime:
+    if timezone.is_aware(dt):
+        return dt
+    return timezone.make_aware(dt, timezone.get_current_timezone())
+
+def _window_for(att: Attendance) -> Tuple[datetime, datetime]:
+    tmpl: ShiftTemplate = att.shift_template
+    start_naive = datetime.combine(att.date, tmpl.start_time)
+    end_naive = datetime.combine(att.date, tmpl.end_time)
+    if getattr(tmpl, "overnight", False) or tmpl.end_time <= tmpl.start_time:
+        end_naive = end_naive + timedelta(days=1)
+    return _aware(start_naive), _aware(end_naive)
+
+def _window_for_params(date_, tmpl: ShiftTemplate) -> Tuple[datetime, datetime]:
+    start_naive = datetime.combine(date_, tmpl.start_time)
+    end_naive = datetime.combine(date_, tmpl.end_time)
+    if getattr(tmpl, "overnight", False) or tmpl.end_time <= tmpl.start_time:
+        end_naive = end_naive + timedelta(days=1)
+    return _aware(start_naive), _aware(end_naive)
+
+def _overlap(a_start: datetime, a_end: datetime, b_start: datetime, b_end: datetime) -> bool:
+    return not (a_end <= b_start or b_end <= a_start)
+
+# ========= kiểm tra trùng ca (pending/approved) =========
+_ACTIVE = {Attendance.Status.PENDING, Attendance.Status.APPROVED}
+
+def _find_conflicts(employee_id: int, date_, tmpl: ShiftTemplate, exclude_id: Optional[int] = None) -> List[Attendance]:
+    target_start, target_end = _window_for_params(date_, tmpl)
+    candidates = (
+        Attendance.objects
+        .filter(
+            deleted_at__isnull=True,
+            employee_id=employee_id,
+            status__in=_ACTIVE,
+            date__gte=date_ - timedelta(days=1),
+            date__lte=date_ + timedelta(days=1),
+        )
+        .select_related("shift_template")
+    )
+    if exclude_id:
+        candidates = candidates.exclude(id=exclude_id)
+    out: List[Attendance] = []
+    for s in candidates:
+        s_start, s_end = _window_for(s)
+        if _overlap(target_start, target_end, s_start, s_end):
+            out.append(s)
     return out
 
-def _local_day_bounds(d: date) -> Tuple[datetime, datetime]:
-    tz = timezone.get_current_timezone()
-    start = timezone.make_aware(datetime.combine(d, time.min), tz) +timedelta(hours=6)
-    end = start + timedelta(days=1)
-    _p("[_local_day_bounds] date=%s tz=%s start=%s end=%s", d, tz, start, end)
-    return start, end
+def _raise_if_conflict(employee_id: int, date_, tmpl: ShiftTemplate, exclude_id: Optional[int], when: str) -> None:
+    conflicts = _find_conflicts(employee_id, date_, tmpl, exclude_id=exclude_id)
+    if conflicts:
+        details = []
+        for c in conflicts:
+            s, e = _window_for(c)
+            details.append(f"[#{c.id}] {c.shift_template.code} {s:%Y-%m-%d %H:%M}→{e:%Y-%m-%d %H:%M} (status={c.get_status_display()})")
+        raise ValueError(f"Trùng thời gian với bản ghi khác: {'; '.join(details)} (bước {when}).")
 
-# lấy thời gian bắt đầu và kết thúc ca làm, và số giờ nghỉ 
-def _shift_window(si: ShiftInstance) -> Tuple[datetime, datetime, int]:
-    tz = timezone.get_current_timezone()
-    tpl = si.template
-    win_start = timezone.make_aware(datetime.combine(si.date, tpl.start_time), tz)
-    end_date = si.date + (timedelta(days=1) if tpl.overnight else timedelta(days=0))
-    win_end = timezone.make_aware(datetime.combine(end_date, tpl.end_time), tz)
-    break_minutes = int(tpl.break_minutes or 0)
-    _p("[_shift_window] si_id=%s tpl=%s overnight=%s start=%s end=%s break=%s",
-       si.id, tpl.code, tpl.overnight, win_start, win_end, break_minutes)
-    return win_start, win_end, break_minutes
-
-# ====== Event helpers ======
-def _last_valid_event_before(employee_id: int, ts: datetime) -> Optional[AttendanceEvent]:
-    ev = (AttendanceEvent.objects
-          .filter(employee_id=employee_id, ts__lt=ts)
-          .order_by("-ts")
-          .first())
-    _p("[_last_valid_event_before] emp=%s ts<%s -> %s",
-       employee_id, ts,
-       {"id": ev.id, "typ": ev.event_type, "ts": ev.ts} if ev else None)
-    return ev
-
-# lấy tất cả attendance event của employee từ thời gian start đến thời gian end 
-def _events_in_window(employee_id: int, start: datetime, end: datetime) -> List[AttendanceEvent]:
-    qs = (AttendanceEvent.objects
-          .filter(employee_id=employee_id, ts__gte=start, ts__lt=end)
-          .order_by("ts"))
-    events = list(qs)
-    first_ts = events[0].ts if events else None
-    last_ts = events[-1].ts if events else None
-    _p("[_events_in_window] emp=%s window=[%s, %s) count=%d first=%s last=%s",
-       employee_id, start, end, len(events), first_ts, last_ts)
-    return events
-
-# ====== Stateful calculation (đúng cho ca qua đêm) ======
-def _work_minutes_stateful(employee_id: int, win_start: datetime, win_end: datetime) -> Tuple[int, Optional[datetime], Optional[datetime]]:
-    """
-    Tính worked minutes trong [win_start, win_end) theo state machine.
-    Trả thêm (first_in_in_window, last_out_in_window) để dùng cho late/early.
-    """
-    events = _events_in_window(employee_id, win_start, win_end)
-    prev_ev = _last_valid_event_before(employee_id, win_start)
-
-    # Trạng thái tại win_start: đang "IN" nếu sự kiện cuối trước đó là IN.
-    clocked_in = (prev_ev is not None and prev_ev.event_type == "in")
-
-    cur = win_start
-    worked = 0
-    first_in_in_window = None
-    last_out_in_window = None
-
-    _p("[_work_minutes_stateful] emp=%s win=[%s, %s) carry_in=%s prev=%s",
-       employee_id, win_start, win_end, clocked_in,
-       {"id": prev_ev.id, "typ": prev_ev.event_type, "ts": prev_ev.ts} if prev_ev else None)
-
-    for ev in events:
-        if clocked_in:
-            delta = _minutes_between(cur, ev.ts)
-            worked += delta
-            _p("   [stateful] add=%s min (cur=%s -> ev=%s)", delta, cur, ev.ts)
-        # toggle state
-        if ev.event_type == "in":
-            clocked_in = True
-            cur = ev.ts
-            if first_in_in_window is None:
-                first_in_in_window = ev.ts
-            _p("   [stateful] IN at %s", ev.ts)
-        else:  # out
-            clocked_in = False
-            cur = ev.ts
-            last_out_in_window = ev.ts
-            _p("   [stateful] OUT at %s", ev.ts)
-
-    # Nếu vẫn đang IN tới cuối ca, cộng phần còn lại đến win_end
-    if clocked_in:
-        tail = _minutes_between(cur, win_end)
-        worked += tail
-        _p("   [stateful] tail add=%s min (cur=%s -> win_end=%s)", tail, cur, win_end)
-
-    _p("[_work_minutes_stateful] result worked=%s first_in=%s last_out=%s",
-       worked, first_in_in_window, last_out_in_window)
-    return worked, first_in_in_window, last_out_in_window
-
-def _minutes_between(a: datetime, b: datetime) -> int:
-    secs = (b-a).total_seconds()
-    if secs <=0:
-        mins=0
-    else:
-        mins = int((secs+30)//60)
-    # mins = max(0, int((b - a).total_seconds() // 60))
-    _p("[_minutes_between] a=%s b=%s -> %s", a, b, mins)
-    return mins
-
-# ====== Shifts in a day ======
-def _list_shift_instances_for_day(employee_id: int, d: date) -> List[ShiftInstance]:
-    """
-    Mặc định suy luận ca dựa theo shift_instance xuất hiện trong events của NV trong ngày d.
-    Nếu bạn có bảng phân công ca theo NV, thay thế logic này cho phù hợp.
-    """
-    day_start, day_end = _local_day_bounds(d)
-    si_ids = (AttendanceEvent.objects
-              .filter(employee_id=employee_id, ts__gte=day_start, ts__lt=day_end, shift_instance__isnull=False)
-              .values_list("shift_instance_id", flat=True)
-              .distinct())
-    ids = list(si_ids)
-    if not ids:
-        _p("[_list_shift_instances_for_day] emp=%s date=%s -> NO shifts inferred", employee_id, d)
-        return []
-    sis = list(ShiftInstance.objects.select_related("template").filter(id__in=ids).order_by("template_id", "date"))
-    _p("[_list_shift_instances_for_day] emp=%s date=%s sis=%s", employee_id, d, [s.id for s in sis])
-    return sis
-
-# ====== Leave helpers ======
-def _approved_leave_covering_date(employee_id: int, d: date) -> Optional[LeaveRequest]:
-    lv = (LeaveRequest.objects
-          .filter(employee_id=employee_id, status="approved", start_date__lte=d, end_date__gte=d)
-          .order_by("-decision_ts", "-created_at")
-          .first())
-    _p("[_approved_leave_covering_date] emp=%s date=%s -> %s", employee_id, d, lv.id if lv else None)
-    return lv
-
-# ==========================================================
-#                    PUBLIC SERVICE API
-# ==========================================================
-@transaction.atomic
-def build_daily_summary(employee_id: int, d: Optional[date] = None) -> AttendanceSummary:
-    """
-    Build/Upsert AttendanceSummary cho 1 nhân viên trong 1 ngày, hỗ trợ:
-    - NHIỀU CA trong ngày
-    - CA QUA ĐÊM (start hôm nay, end ngày mai)
-    Nguyên tắc: mỗi ca tính độc lập bằng state machine trong [win_start, win_end), rồi cộng dồn.
-    """
-    try:
-        d = _resolve_date(d)
-        day_start, day_end = _local_day_bounds(d)
-
-        # Lấy danh sách ca thuộc ngày d (có thể 0, 1, 2-3 ca)
-        sis = _list_shift_instances_for_day(employee_id, d)
-
-        planned_total = 0
-        worked_total = 0
-        late_total = 0
-        early_total = 0
-        overtime_total = 0
-
-        # Chụp snapshot events cả ngày (để audit UI)
-        day_events = _events_in_window(employee_id, day_start, day_end)
-        events_snap = [{
-            "id": e.id,
-            "ts": e.ts.isoformat(),
-            "event_type": e.event_type,
-            "source": e.source,
-            "is_valid": e.is_valid,
-            "shift_instance_id": e.shift_instance_id,
-        } for e in day_events]
-
-        _p("[build_daily_summary] START emp=%s date=%s has_shifts=%s day_events=%d",
-           employee_id, d, bool(sis), len(day_events))
-
-        if sis:
-            # Có >=1 ca trong ngày (mỗi ca có thể qua đêm)
-            for si in sis:
-                win_start, win_end, break_minutes = _shift_window(si)
-
-                # planned theo ca
-                planned_i = _minutes_between(win_start, win_end) - break_minutes
-                planned_i = max(0, planned_i)
-
-                # worked theo ca (stateful, carry-in)
-                worked_i, first_in, last_out = _work_minutes_stateful(employee_id, win_start, win_end)
-                
-                # ====== ÁP DỤNG ÂN HẠN CHO WORKED ======
-                window_mins = _minutes_between(win_start, win_end)
-                grace_start = win_start + timedelta(minutes=GRACE_MINUTES)
-                grace_end   = win_end   - timedelta(minutes=GRACE_MINUTES)
-
-                pad_start = 0
-                if first_in is not None and win_start < first_in <= grace_start:
-                # bù phần đầu: coi như làm từ win_start
-                    pad_start = _minutes_between(win_start, first_in)
-
-                pad_end = 0
-                if last_out is not None and grace_end <= last_out < win_end:
-                # bù phần cuối: coi như làm đến win_end
-                    pad_end = _minutes_between(last_out, win_end)
-
-                if pad_start or pad_end:
-                    worked_i = min(window_mins, worked_i + pad_start + pad_end)
-                # ====== HẾT BÙ ÂN HẠN ======
-
-                # trừ break một lần nếu có làm
-                if worked_i > 0 and break_minutes > 0:
-                    worked_i = max(0, worked_i - break_minutes)
-
-                # late theo ca
-                if first_in is None:
-                    prev_ev = _last_valid_event_before(employee_id, win_start)
-                    late_i = 0 if (prev_ev and prev_ev.event_type == "in") else 0
-                else:
-                    grace_start = win_start + timedelta(minutes=GRACE_MINUTES)
-                    late_i = _minutes_between(grace_start, first_in) if first_in > grace_start else 0
-
-                # early theo ca
-                if last_out is None:
-                    early_i = 0
-                else:
-                    grace_end = win_end - timedelta(minutes=GRACE_MINUTES)
-                    early_i = _minutes_between(last_out, grace_end) if last_out < grace_end else 0
-
-                overtime_i = max(0, worked_i - planned_i)
-
-                _p("   [shift] si=%s window=[%s,%s) break=%s planned_i=%s worked_i=%s late_i=%s early_i=%s overtime_i=%s",
-                   si.id, win_start, win_end, break_minutes, planned_i, worked_i, late_i, early_i, overtime_i)
-
-                planned_total += planned_i
-                worked_total += worked_i
-                late_total += late_i
-                early_total += early_i
-                overtime_total += overtime_i
-
-                if worked_i == 0:
-                    _p("   [shift] si=%s has ZERO worked within window but events_day=%d",
-                       si.id, len(day_events))
-        else:
-            # Không tìm thấy ca (planned=0) -> tính worked theo cả ngày (stateful trong [00:00, 24:00))
-            worked_total, _, _ = _work_minutes_stateful(employee_id, day_start, day_end)
-            planned_total = 0
-            late_total = 0
-            early_total = 0
-            overtime_total = worked_total  # xem toàn bộ là ngoài kế hoạch
-            _p("[build_daily_summary] NO shifts -> worked_day=%s overtime_day=%s events_day=%d",
-               worked_total, overtime_total, len(day_events))
-
-        # Nghỉ phép
-        approved_leave = _approved_leave_covering_date(employee_id, d)
-
-        # Status tổng
-        if worked_total > 0 or day_events:
-            if early_total > 0:
-                status = "early_leave"
-            elif late_total > 0:
-                status = "late"
-            else:
-                status = "present"
-        else:
-            status = "absent"  # nếu muốn hiển thị riêng 'on_leave' thì thêm vào choices của model
-
-        _p("[build_daily_summary] DONE emp=%s date=%s planned=%s worked=%s late=%s early=%s overtime=%s status=%s on_leave=%s",
-           employee_id, d, planned_total, worked_total, late_total, early_total, overtime_total, status,
-           approved_leave.id if approved_leave else None)
-
-        summary, _ = AttendanceSummary.objects.update_or_create(
+# ========= helper: tìm đơn nghỉ đã APPROVED bao phủ ngày =========
+def _find_approved_leave_for(employee_id: int, date_) -> Optional[LeaveRequest]:
+    return (
+        LeaveRequest.objects
+        .filter(
+            deleted_at__isnull=True,
             employee_id=employee_id,
-            date=d,
-            defaults=dict(
-                planned_minutes=planned_total,
-                worked_minutes=worked_total,
-                late_minutes=late_total,
-                early_leave_minutes=early_total,
-                overtime_minutes=overtime_total,
-                status=status,
-                notes="",
-                events=events_snap,
-                segments=[],  # có thể build segments riêng nếu cần, nhưng worked đã tính stateful chính xác
-                on_leave=approved_leave if approved_leave else None,
-            )
+            status=LeaveRequest.Status.APPROVED,
+            start_date__lte=date_,
+            end_date__gte=date_,
         )
-        return summary
+        .order_by("-decision_ts", "-updated_at", "-id")
+        .first()
+    )
 
-    except Exception as e:
-        _p("[build_daily_summary] FAILED emp=%s date=%s err=%r", employee_id, d, e)
-        raise
+# ========= helper: contact (email + lark open id) từ user selector =========
+def _resolve_contacts(employee_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+    """
+    Lấy dữ liệu liên hệ 1 lần từ get_external_users_map(employee_ids).
+    Kỳ vọng mỗi user có ít nhất các field: email, lark_open_id (nếu có).
+    Trả về: {emp_id: {"emails": [..], "lark_open_id": "..." }}
+    """
+    contacts: Dict[int, Dict[str, Any]] = {}
+    if not employee_ids:
+        return contacts
 
-def rebuild_summaries_for_date(d: Optional[date] = None, employee_ids: Optional[List[int]] = None) -> int:
     try:
-        d = _resolve_date(d)
-        day_start, day_end = _local_day_bounds(d)
+        data = get_external_users_map(employee_ids) or {}
+    except Exception as ex:
+        logger.warning("[attendance] get_external_users_map failed: %s", ex)
+        data = {}
 
-        emp_from_events = (AttendanceEvent.objects
-                           .filter(ts__gte=day_start, ts__lt=day_end)
-                           .values_list("employee_id", flat=True)
-                           .distinct())
+    for emp_id in employee_ids:
+        u = data.get(int(emp_id)) or {}
+        email = (u.get("email") or "").strip()
+        lark_open_id = (u.get("lark_open_id") or u.get("open_id") or "").strip()
+        emails = [email] if email else []
+        contacts[int(emp_id)] = {"emails": emails, "lark_open_id": lark_open_id}
+    return contacts
 
-        emp_from_leave = (LeaveRequest.objects
-                          .filter(status="approved", start_date__lte=d, end_date__gte=d)
-                          .values_list("employee_id", flat=True)
-                          .distinct())
+def _attendance_brief(att: Attendance) -> str:
+    t = att.shift_template
+    s = getattr(t, "start_time", None)
+    e = getattr(t, "end_time", None)
+    s_txt = s.strftime("%H:%M") if s else "?"
+    e_txt = e.strftime("%H:%M") if e else "?"
+    code = getattr(t, "code", "") or ""
+    name = getattr(t, "name", "") or ""
+    return f"{att.date} • {code} ({name}) {s_txt}-{e_txt}"
 
-        target_ids = set(employee_ids or []) or set(emp_from_events) | set(emp_from_leave)
-        _p("[rebuild_summaries_for_date] date=%s targets=%d details=%s",
-           d, len(target_ids), sorted(target_ids))
+def _lark_webhook_url() -> Optional[str]:
+    return getattr(settings, "LARK_ATTENDANCE_WEBHOOK_URL", None)
 
-        cnt = 0
-        for emp_id in target_ids:
-            build_daily_summary(emp_id, d)
-            cnt += 1
+def _format_items_brief(atts: List[Attendance]) -> str:
+    return "\n".join(f"- {_attendance_brief(a)}" for a in atts)
 
-        _p("[rebuild_summaries_for_date] date=%s rebuilt=%s", d, cnt)
-        return cnt
+# ========= CRUD + quyết định =========
+def create_attendance(
+    *, employee_id: int, shift_template_id: int, date, ts_in=None, ts_out=None,
+    source: int, work_mode: int, bonus=None, requested_by: Optional[int] = None
+) -> Attendance:
+    tmpl = ShiftTemplate.objects.get(id=shift_template_id)
+    _raise_if_conflict(employee_id, date, tmpl, exclude_id=None, when="create")
+    link_leave = _find_approved_leave_for(employee_id, date)
+    with transaction.atomic():
+        obj = Attendance.objects.create(
+            employee_id=employee_id,
+            shift_template=tmpl,
+            date=date,
+            ts_in=ts_in,
+            ts_out=ts_out,
+            source=source,
+            work_mode=work_mode,
+            bonus=bonus or 0,
+            status=Attendance.Status.PENDING,
+            is_valid=False,
+            requested_by=requested_by or employee_id,
+            on_leave=link_leave,
+        )
+        return obj
 
-    except Exception as e:
-        _p("[rebuild_summaries_for_date] FAILED date=%s err=%r", d, e)
-        raise
+def update_attendance(
+    *, target_id: int, actor_employee_id: int,
+    shift_template_id: Optional[int] = None, date=None, ts_in=None, ts_out=None,
+    source: Optional[int] = None, work_mode: Optional[int] = None, bonus=None,
+    requested_by: Optional[int] = None, actor_is_manager: bool = False
+) -> Attendance:
+    with transaction.atomic():
+        obj = _for_update(Attendance.objects).get(id=target_id)
+        tmpl = obj.shift_template
+        new_date = obj.date
+        if shift_template_id is not None:
+            tmpl = ShiftTemplate.objects.get(id=shift_template_id)
+        if date is not None:
+            new_date = date
+        if shift_template_id is not None or date is not None:
+            _raise_if_conflict(obj.employee_id, new_date, tmpl, exclude_id=obj.id, when="update")
+
+        if not actor_is_manager and obj.status == Attendance.Status.APPROVED:
+            obj.status = Attendance.Status.PENDING
+            obj.is_valid = False
+            obj.approved_by = None
+            obj.approved_at = None
+            obj.reject_reason = ""
+
+        if shift_template_id is not None:
+            obj.shift_template = tmpl
+        if date is not None:
+            obj.date = new_date
+        if ts_in is not None:
+            obj.ts_in = ts_in
+        if ts_out is not None:
+            obj.ts_out = ts_out
+        if source is not None:
+            obj.source = source
+        if work_mode is not None:
+            obj.work_mode = work_mode
+        if bonus is not None:
+            obj.bonus = bonus
+        if requested_by is not None:
+            obj.requested_by = requested_by
+
+        obj.on_leave = _find_approved_leave_for(obj.employee_id, obj.date)
+        obj.save()
+        return obj
+
+def soft_delete_attendance(*, target_id: int) -> None:
+    with transaction.atomic():
+        obj = _for_update(Attendance.objects).get(id=target_id)
+        obj.deleted_at = timezone.now()
+        obj.save(update_fields=["deleted_at", "updated_at"])
+
+def restore_attendance(*, target_id: int) -> Attendance:
+    with transaction.atomic():
+        obj = _for_update(Attendance.objects).get(id=target_id)
+        obj.deleted_at = None
+        obj.save(update_fields=["deleted_at", "updated_at"])
+        return obj
+
+def cancel_by_employee(*, actor_user_id: int, target_id: int, actor_is_manager: bool = False) -> Attendance:
+    with transaction.atomic():
+        obj = _for_update(Attendance.objects).get(id=target_id)
+        if not actor_is_manager and obj.employee_id != actor_user_id:
+            raise PermissionError("Bạn không có quyền huỷ bản ghi này.")
+        if obj.status == Attendance.Status.APPROVED and not actor_is_manager:
+            raise PermissionError("Bản ghi đã duyệt, vui lòng liên hệ quản lý để huỷ.")
+        obj.status = Attendance.Status.CANCELED
+        obj.is_valid = False
+        obj.approved_by = None
+        obj.approved_at = None
+        obj.save(update_fields=["status", "is_valid", "approved_by", "approved_at", "updated_at"])
+        return obj
+
+def approve_attendance(*, manager_user_id: int, target_id: int, override_overlap: bool = False) -> Attendance:
+    with transaction.atomic():
+        obj = _for_update(Attendance.objects.select_related("shift_template")).get(id=target_id)
+        if not override_overlap:
+            _raise_if_conflict(obj.employee_id, obj.date, obj.shift_template, exclude_id=obj.id, when="approve")
+        obj.approve(manager_user_id)
+        obj.save(update_fields=["status", "is_valid", "approved_by", "approved_at", "updated_at"])
+        return obj
+
+def reject_attendance(*, manager_user_id: int, target_id: int, reason: str = "") -> Attendance:
+    with transaction.atomic():
+        obj = _for_update(Attendance.objects).get(id=target_id)
+        obj.reject(manager_user_id, reason)
+        obj.save(update_fields=["status", "is_valid", "approved_by", "approved_at", "reject_reason", "updated_at"])
+        return obj
+
+def manager_cancel_attendance(*, manager_user_id: int, target_id: int, reason: str = "") -> Attendance:
+    with transaction.atomic():
+        obj = _for_update(Attendance.objects).get(id=target_id)
+        obj.status = Attendance.Status.CANCELED
+        obj.is_valid = False
+        obj.approved_by = None
+        obj.approved_at = None
+        if reason:
+            obj.reject_reason = reason
+        obj.save(update_fields=["status", "is_valid", "approved_by", "approved_at", "reject_reason", "updated_at"])
+        return obj
+
+# ========= ALL-OR-NOTHING batch register =========
+def batch_register_attendance(
+    *, employee_id: int,
+    items: List[Dict[str, Any]],
+    default_source: int,
+    default_work_mode: int,
+    default_bonus
+):
+    created: List[Attendance] = []
+    errors: List[Dict[str, Any]] = []
+
+    if not items:
+        return [], [{"index": None, "error": "No items provided."}]
+
+    tpl_ids = {int(it["shift_template"]) for it in items}
+    tpl_map: Dict[int, ShiftTemplate] = {t.id: t for t in ShiftTemplate.objects.filter(id__in=tpl_ids)}
+    missing_tpl = [tid for tid in tpl_ids if tid not in tpl_map]
+    if missing_tpl:
+        for i, it in enumerate(items):
+            if int(it["shift_template"]) in missing_tpl:
+                errors.append({"index": i, "error": f"ShiftTemplate {it['shift_template']} not found"})
+        return [], errors
+
+    payload_windows: List[Dict[str, Any]] = []
+    min_date: Optional[date_type] = None
+    max_date: Optional[date_type] = None
+    for i, it in enumerate(items):
+        d = it["date"]
+        tpl = tpl_map[int(it["shift_template"])]
+        start_dt, end_dt = _window_for_params(d, tpl)
+        payload_windows.append({"index": i, "date": d, "template_id": tpl.id, "start": start_dt, "end": end_dt})
+        if min_date is None or d < min_date:
+            min_date = d
+        if max_date is None or d > max_date:
+            max_date = d
+
+    sorted_pw = sorted(payload_windows, key=lambda x: (x["start"], x["end"]))
+    for a_idx in range(len(sorted_pw)):
+        a = sorted_pw[a_idx]
+        for b_idx in range(a_idx + 1, len(sorted_pw)):
+            b = sorted_pw[b_idx]
+            if b["start"] >= a["end"]:
+                break
+            if _overlap(a["start"], a["end"], b["start"], b["end"]):
+                errors.append({"index": a["index"], "error": f"Overlaps with another item in payload (index={b['index']}).", "conflict_with_index": b["index"]})
+    if errors:
+        return [], errors
+
+    q_from = (min_date or timezone.localdate()) - timedelta(days=1)
+    q_to = (max_date or timezone.localdate()) + timedelta(days=1)
+    existing_qs = (
+        Attendance.objects
+        .select_related("shift_template")
+        .filter(
+            deleted_at__isnull=True,
+            employee_id=employee_id,
+            status__in=_ACTIVE,
+            date__gte=q_from,
+            date__lte=q_to,
+        )
+    )
+    existing_windows: List[Dict[str, Any]] = []
+    for ex in existing_qs:
+        tpl = ex.shift_template
+        if not tpl:
+            continue
+        ex_start, ex_end = _window_for_params(ex.date, tpl)
+        existing_windows.append({"id": ex.id, "start": ex_start, "end": ex_end})
+    for pw in payload_windows:
+        for ex in existing_windows:
+            if _overlap(pw["start"], pw["end"], ex["start"], ex["end"]):
+                errors.append({"index": pw["index"], "error": f"Overlaps with existing attendance id={ex['id']} in DB.", "conflict_attendance_id": ex["id"]})
+    if errors:
+        return [], errors
+
+    with transaction.atomic():
+        for it in items:
+            created.append(
+                create_attendance(
+                    employee_id=employee_id,
+                    shift_template_id=int(it["shift_template"]),
+                    date=it["date"],
+                    ts_in=it.get("ts_in"),
+                    ts_out=it.get("ts_out"),
+                    source=default_source,
+                    work_mode=default_work_mode,
+                    bonus=it.get("bonus") or default_bonus,
+                    requested_by=employee_id,
+                )
+            )
+
+    # Notify Lark sau khi tạo thành công
+    try:
+        brief = _format_items_brief(created)
+        text = f"[Attendance] Nhân viên #{employee_id} vừa đăng ký {len(created)} ca:\n{brief}"
+        ok = send_lark_notification(
+            text=text,
+            webhook_url=_lark_webhook_url(),
+            object_type="AttendanceBatchRegister",
+            object_id=str(employee_id),
+            to_user=employee_id,
+        )
+        if ok:
+            logger.info("[attendance] Lark sent (batch-register) for employee_id=%s, items=%s", employee_id, len(created))
+        else:
+            logger.warning("[attendance] Lark send FAILED (batch-register) for employee_id=%s", employee_id)
+    except Exception as ex:
+        logger.exception("[attendance] Lark notify exception (batch-register): %s", ex)
+
+    return created, []
+
+def batch_decide_attendance(
+    *, manager_user_id: int,
+    items: list
+):
+    updated: List[Attendance] = []
+    errors: List[Dict[str, Any]] = []
+
+    for idx, it in enumerate(items or []):
+        try:
+            att_id = int(it["id"])
+            if bool(it["approve"]):
+                obj = approve_attendance(
+                    manager_user_id=manager_user_id,
+                    target_id=att_id,
+                    override_overlap=bool(it.get("override_overlap", False))
+                )
+            else:
+                obj = reject_attendance(
+                    manager_user_id=manager_user_id,
+                    target_id=att_id,
+                    reason=it.get("reason") or ""
+                )
+            updated.append(obj)
+        except Exception as e:
+            errors.append({"index": idx, "id": it.get("id"), "error": str(e)})
+
+    # Notify cho các bản ghi đã APPROVE
+    try:
+        approved_by_emp: Dict[int, List[Attendance]] = {}
+        for a in updated:
+            if a.status == Attendance.Status.APPROVED:
+                approved_by_emp.setdefault(a.employee_id, []).append(a)
+
+        if approved_by_emp:
+            emp_ids = list(approved_by_emp.keys())
+            contacts = _resolve_contacts(emp_ids)
+
+            # Lark: tổng hợp 1 message cho tất cả approvals + @mention nếu có open_id
+            total = sum(len(v) for v in approved_by_emp.values())
+            lines = [f"[Attendance] Manager #{manager_user_id} đã DUYỆT {total} ca cho {len(approved_by_emp)} nhân viên:"]
+            at_user_ids: List[str] = []
+            for emp_id, atts in approved_by_emp.items():
+                lines.append(f"- Nhân viên #{emp_id}: {len(atts)} ca")
+                open_id = (contacts.get(emp_id) or {}).get("lark_open_id") or ""
+                if open_id:
+                    at_user_ids.append(open_id)
+
+            ok = send_lark_notification(
+                text="\n".join(lines),
+                at_user_ids=at_user_ids if at_user_ids else None,
+                webhook_url=_lark_webhook_url(),
+                object_type="AttendanceBatchDecide",
+                object_id=str(manager_user_id),
+                to_user=manager_user_id,
+            )
+            if ok:
+                logger.info("[attendance] Lark sent (batch-decide) manager_id=%s, total=%s", manager_user_id, total)
+            else:
+                logger.warning("[attendance] Lark send FAILED (batch-decide) manager_id=%s", manager_user_id)
+
+            # Email: gửi cho từng NV danh sách ca đã duyệt
+            for emp_id, atts in approved_by_emp.items():
+                emails = (contacts.get(emp_id) or {}).get("emails") or []
+                subject = "Ca làm việc của bạn đã được duyệt"
+                brief = _format_items_brief(atts)
+                text_body = (
+                    f"Xin chào,\n\n"
+                    f"Các ca sau đã được quản lý (ID {manager_user_id}) duyệt:\n"
+                    f"{brief}\n\n"
+                    f"Trân trọng."
+                )
+                html_body = (
+                    "<p>Xin chào,</p>"
+                    f"<p>Các ca sau đã được quản lý (ID <b>{manager_user_id}</b>) duyệt:</p>"
+                    f"<pre style='background:#f6f8fa;padding:12px;border-radius:8px'>{brief}</pre>"
+                    "<p>Trân trọng.</p>"
+                )
+                ok_mail = send_email_notification(
+                    subject=subject,
+                    text_body=text_body,
+                    html_body=html_body,
+                    to_emails=emails,
+                    object_type="AttendanceApproved",
+                    object_id=str(emp_id),
+                    to_user=emp_id,
+                )
+                logger.info("[attendance] Email %s for employee_id=%s (items=%s)",
+                            "SENT" if ok_mail else "FAILED", emp_id, len(atts))
+    except Exception as ex:
+        logger.exception("[attendance] Notify exception (batch-decide): %s", ex)
+
+    return updated, errors

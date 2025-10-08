@@ -1,370 +1,571 @@
-from datetime import datetime
+# -*- coding: utf-8 -*-
+from __future__ import annotations
 
-from rest_framework.views import APIView
+from typing import Any, Dict, Iterable, List
+
+from django.db.models import QuerySet
+from django.shortcuts import get_object_or_404
+from rest_framework import mixins, permissions, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework import status
-from drf_spectacular.utils import extend_schema, OpenApiParameter
-from typing import List, Optional
-from django.utils import timezone
 
-from erp_the20.serializers.attendance_serializer import (
-    AttendanceEventReadSerializer,
-    AttendanceEventWriteSerializer,
-    AttendanceSummaryReadSerializer,
-    AttendanceSummaryWriteSerializer,
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_view,
 )
 
-from erp_the20.services import attendance_service
-from erp_the20.selectors import attendance_selector
+from erp_the20.models import Attendance
+from erp_the20.selectors.attendance_selector import (
+    filter_attendances,
+    list_my_pending,
+    list_pending_for_manager,
+)
+from erp_the20.selectors.user_selector import (
+    is_employee_manager,
+    get_external_users_map,
+)
+from erp_the20.serializers.attendance_serializer import (
+    ApproveDecisionSerializer,
+    AttendanceCreateSerializer,
+    AttendanceReadSerializer,
+    AttendanceUpdateSerializer,
+    BatchDecisionSerializer,
+    BatchRegisterSerializer,
+    CancelSerializer,
+    ManagerCancelSerializer,
+    SearchFiltersSerializer,
+)
+from erp_the20.services.attendance_service import (
+    approve_attendance,
+    batch_decide_attendance,
+    batch_register_attendance,
+    cancel_by_employee,
+    create_attendance,
+    manager_cancel_attendance,
+    reject_attendance,
+    restore_attendance,
+    soft_delete_attendance,
+    update_attendance,
+)
 
 
-class AttendanceEventListView(APIView):
-    """
-    API list attendance events (filter theo employee, date range)
-    Query params:
-        ?employee=101&start=2025-10-01&end=2025-10-02
-    """
-
-    def get(self, request):
-        employee_ids = request.query_params.getlist("employee")
-        start = request.query_params.get("start")
-        end = request.query_params.get("end")
-
-        qs = attendance_selector.list_attendance_events(
-            employee_ids=[int(e) for e in employee_ids] if employee_ids else None,
-            start=start,
-            end=end,
-        )
-        serializer = AttendanceEventReadSerializer(qs, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+# -----------------------
+# Helpers
+# -----------------------
+def _qp_get_multi(request, key: str) -> List[str]:
+    """Lấy list giá trị từ query string; hỗ trợ cả CSV."""
+    vs = request.query_params.getlist(key)
+    if not vs:
+        raw = request.query_params.get(key)
+        if raw:
+            vs = [x for x in raw.split(",") if x != ""]
+    out: List[str] = []
+    for v in vs:
+        s = str(v).strip()
+        if s:
+            out.append(s)
+    return out
 
 
-# =========================
-# Attendance Summaries
-# =========================
-
-class AttendanceSummaryListView(APIView):
-    """
-    API list summaries
-    Query:
-        ?employee=101
-        ?date=2025-10-02
-    """
-
-    def get(self, request):
-        employee = request.query_params.get("employee")
-        date_str = request.query_params.get("date")
-
-        if employee and date_str:
-            summary = attendance_selector.get_summary(int(employee), date_str)
-            if not summary:
-                return Response([], status=status.HTTP_200_OK)
-            serializer = AttendanceSummaryReadSerializer(summary)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-
-        elif employee:
-            summaries = attendance_selector.list_summaries(int(employee))
-            serializer = AttendanceSummaryReadSerializer(summaries, many=True)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-
-        elif date_str:
-            summaries = attendance_selector.list_summaries_by_date(date_str)
-            serializer = AttendanceSummaryReadSerializer(summaries, many=True)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-
-        else:
-            summaries = attendance_selector.list_all_summaries()
-            serializer = AttendanceSummaryReadSerializer(summaries, many=True)
-            return Response(serializer.data, status=status.HTTP_200_OK)
-    
-
-
-
-
-class AttendanceEventListByDateView(APIView):
-    """
-    API list attendance events của nhân viên theo ngày
-    Query params:
-        ?employee=101&date=2025-10-02
-    """
-
-    def get(self, request):
-        employee = request.query_params.get("employee_id")
-        date_str = request.query_params.get("date")
-
-        if not employee or not date_str:
-            return Response({"error": "employee and date are required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        events = attendance_selector.get_list_event_by_date(int(employee), date_str)
-        serializer = AttendanceEventReadSerializer(events, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-class AttendanceEventListByDatesView(APIView):
-    def get(self, request):
-        """
-        API list attendance events của nhân viên theo nhiều ngày
-        Query params:
-            ?employee=101&dates=2025-10-02,2025-10-03
-        """
-        employee = request.query_params.get("employee_id")
-        start_str = request.query_params.get("start")
-        end_str = request.query_params.get("end")
-        if not employee or not start_str or not end_str:
-            return Response({"error": "employee, start and end are required"}, status=status.HTTP_400_BAD_REQUEST)
-        events = attendance_selector.list_attendance_events(employee_ids=[int(employee)], start=start_str, end=end_str)
-        serializer = AttendanceEventReadSerializer(events, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-class AttendanceStatsView(APIView):
-    """
-    API thống kê:
-    - currently_clocked_in: số nhân viên đang trong ca (đã checkin, chưa checkout)
-    - late: số nhân viên đi trễ
-    - on_time: số nhân viên đi đúng giờ
-    """
-
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="date",
-                type=str,
-                description="Ngày (YYYY-MM-DD). Nếu bỏ trống thì lấy ngày hôm nay",
-                required=False,
-            )
-        ],
-        description="Thống kê số nhân viên đi trễ, đúng giờ, đang trong ca."
-    )
-    def get(self, request):
-        # --- Lấy và validate tham số ngày ---
-        date_str = request.query_params.get("date")
-        if date_str:
-            try:
-                today = datetime.strptime(date_str, "%Y-%m-%d").date()
-            except ValueError:
-                return Response(
-                    {"detail": "Invalid date format, should be YYYY-MM-DD"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-        else:
-            today = timezone.localdate()
-
-        # --- Lấy dữ liệu thống kê ---
-        try:
-            currently_in = attendance_selector.count_currently_clocked_in()
-            late, on_time = attendance_selector.count_late_and_ontime(today)
-        except Exception as e:
-            return Response(
-                {"detail": f"Internal error: {str(e)}"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        # --- Kết quả ---
-        data = {
-            "date": str(today),
-            "currently_clocked_in": currently_in,
-            "late": late,
-            "on_time": on_time,
-        }
-        return Response(data, status=status.HTTP_200_OK)
-
-class ListAttendanceEvent(APIView):
-    """
-    API lấy AttendanceEvent (join User/ShiftInstance/ShiftTemplate)
-    Hỗ trợ filter theo: employee_id (1 hoặc nhiều, cách nhau bằng dấu phẩy),
-    username, start, end (YYYY-MM-DD), event_type ('in' | 'out').
-    """
-
-    def get(self, request):
-        # --- Lấy query params ---
-        employee_id_param = request.query_params.get("employee_id")  # vd: "12" hoặc "12,13,99"
-        username = request.query_params.get("username")
-        start = request.query_params.get("start")   # "YYYY-MM-DD"
-        end = request.query_params.get("end")       # "YYYY-MM-DD"
-        event_type = request.query_params.get("event_type")  # "in" hoặc "out"
-
-        # --- Parse employee_ids ---
-        employee_ids = None
-        if employee_id_param:
-            try:
-                employee_ids = [
-                    int(x) for x in str(employee_id_param).replace(" ", "").split(",") if x
-                ]
-            except ValueError:
-                return Response(
-                    {"error": "employee_id phải là số hoặc danh sách số, ngăn cách bằng dấu phẩy."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-        # --- Validate event_type ---
-        if event_type and event_type not in {"in", "out"}:
-            return Response(
-                {"error": "event_type chỉ nhận 'in' hoặc 'out'."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # --- Parse & validate dates ---
-        try:
-            start_date = datetime.strptime(start, "%Y-%m-%d").date() if start else None
-            end_date = datetime.strptime(end, "%Y-%m-%d").date() if end else None
-        except ValueError:
-            return Response(
-                {"error": "Ngày không đúng định dạng (YYYY-MM-DD)."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if start_date and end_date and start_date > end_date:
-            return Response(
-                {"error": "start không thể lớn hơn end."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # --- Gọi selector ---
-        rows = attendance_selector.list_attendance_full(
-            employee_ids=employee_ids,
-            username=username,
-            start=start_date,
-            end=end_date,
-            event_type=event_type
-        )
-
-        # --- Serialize RawQuerySet -> list[dict] ---
-        data = []
-        for r in rows:
-            item = {
-                # Fields từ AttendanceEvent (eta.*)
-                "id": getattr(r, "id", None),
-                "employee_id": getattr(r, "employee_id", None),
-                "ts": r.ts.isoformat() if getattr(r, "ts", None) else None,
-                "event_type": getattr(r, "event_type", None),
-                "shift_instance_id": getattr(r, "shift_instance_id", None),
-
-                # Các cột thêm từ JOIN
-                "username": getattr(r, "username", None),
-                "email": getattr(r, "email", None),
-                "shift_date": getattr(r, "shift_date", None).isoformat()
-                    if getattr(r, "shift_date", None) is not None else None,
-                "shift_status": getattr(r, "shift_status", None),
-                "template_code": getattr(r, "template_code", None),
-                "template_name": getattr(r, "template_name", None),
-                "template_start": str(getattr(r, "template_start", None))
-                    if getattr(r, "template_start", None) else None,
-                "template_end": str(getattr(r, "template_end", None))
-                    if getattr(r, "template_end", None) else None,
-                "break_minutes": getattr(r, "break_minutes", None),
-                "overnight": getattr(r, "overnight", None),
-            }
-            data.append(item)
-
-        return Response(
-            {"count": len(data), "results": data},
-            status=status.HTTP_200_OK
-        )
-    
-
-
-class GetLastEvent(APIView):
-    """
-    API lấy sự kiện chấm công gần nhất của nhân viên
-    Query params:
-        ?employee=101
-    """
-
-    def get(self, request):
-        employee = request.query_params.get("employee")
-
-        if not employee:
-            return Response({"error": "employee is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        ev = attendance_selector.get_last_attendance_event_by_date(int(employee), timezone.localdate())
-        if not ev:
-            return Response({"detail": "No events found"}, status=status.HTTP_404_NOT_FOUND)
-
-        serializer = AttendanceEventReadSerializer(ev)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-    
-
-
-
-class TodaySummaryView(APIView):
-    """
-    GET /api/attendance/summary/today?employee=101
-
-    - FE chỉ truyền employee id.
-    - Server tự lấy ngày hôm nay theo timezone của Django (timezone.localdate()).
-    - Luôn gọi build_daily_summary để đảm bảo dữ liệu mới nhất rồi trả về summary.
-    """
-    # permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request):
-        employee = request.query_params.get("employee")
-        if not employee:
-            return Response({"error": "employee is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            employee_id = int(employee)
-        except (TypeError, ValueError):
-            return Response({"error": "employee must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            # Không truyền date => service tự dùng timezone.localdate()
-            summary = attendance_service.build_daily_summary(employee_id)
-            data = AttendanceSummaryReadSerializer(summary).data
-            # Thêm thông tin ngày server để FE debug nếu cần
-            #data["_server_date"] = timezone.localdate().isoformat()
-            return Response(data, status=status.HTTP_200_OK)
-
-        except Exception as e:
-            return Response(
-                {"error": "failed_to_build_summary", "detail": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-
-class RebuildSummariesTodayView(APIView):
-    """
-    POST /api/attendance/summary/rebuild-today
-    Body (tùy chọn):
-    {
-      "employee_ids": [101, 102, 103]   # nếu bỏ trống: rebuild tất cả NV có event/leave hôm nay
+def _build_search_filters(request) -> Dict[str, Any]:
+    """Chuẩn hoá bộ lọc cho selector.filter_attendances()."""
+    return {
+        "employee_id": _qp_get_multi(request, "employee_id") or request.query_params.get("employee_id"),
+        "status": _qp_get_multi(request, "status") or request.query_params.get("status"),
+        "is_valid": request.query_params.get("is_valid"),
+        "work_mode": _qp_get_multi(request, "work_mode") or request.query_params.get("work_mode"),
+        "source": _qp_get_multi(request, "source") or request.query_params.get("source"),
+        "template_code": _qp_get_multi(request, "template_code") or request.query_params.get("template_code"),
+        "template_name_icontains": request.query_params.get("template_name"),
+        "approved_by": _qp_get_multi(request, "approved_by") or request.query_params.get("approved_by"),
+        "requested_by": _qp_get_multi(request, "requested_by") or request.query_params.get("requested_by"),
+        "shift_date_from": request.query_params.get("shift_date_from") or request.query_params.get("from"),
+        "shift_date_to": request.query_params.get("shift_date_to") or request.query_params.get("to"),
+        "date_from": request.query_params.get("date_from"),
+        "date_to": request.query_params.get("date_to"),
+        "ts_in_from": request.query_params.get("ts_in_from"),
+        "ts_in_to": request.query_params.get("ts_in_to"),
+        "ts_out_from": request.query_params.get("ts_out_from"),
+        "ts_out_to": request.query_params.get("ts_out_to"),
+        "bonus_min": request.query_params.get("bonus_min"),
+        "bonus_max": request.query_params.get("bonus_max"),
+        "q": request.query_params.get("q"),
     }
 
-    - Server tự lấy ngày hôm nay.
-    - Dùng rebuild_summaries_for_date(...) => trả về số lượng summary đã rebuild.
+
+def _iter_objs(objs) -> Iterable[Attendance]:
+    """Chuẩn hoá iterable: hỗ trợ 1 object, list/tuple/set, QuerySet, page list."""
+    if objs is None:
+        return []
+    if isinstance(objs, QuerySet):
+        return list(objs)
+    if isinstance(objs, (list, tuple, set)):
+        return objs
+    return [objs]
+
+
+def _build_users_map_from_objs(objs) -> dict:
     """
-    # permission_classes = [permissions.IsAuthenticated]  # Có thể siết chặt: [permissions.IsAdminUser]
+    Gom tất cả user-id có thể xuất hiện trong response
+    rồi batch lấy 1 lần qua ecom (tránh N+1).
+    """
+    ids = set()
+    for o in _iter_objs(objs):
+        for uid in (o.employee_id, o.requested_by, o.approved_by):
+            if uid:
+                ids.add(int(uid))
+    return get_external_users_map(list(ids)) if ids else {}
 
-    def post(self, request):
-        employee_ids: Optional[List[int]] = request.data.get("employee_ids")
 
-        if employee_ids is not None and not isinstance(employee_ids, list):
-            return Response(
-                {"error": "employee_ids must be a list of integers"},
-                status=status.HTTP_400_BAD_REQUEST
+# -----------------------
+# ViewSet
+# -----------------------
+@extend_schema_view(
+    list=extend_schema(
+        tags=["Attendance"],
+        summary="Tìm kiếm / liệt kê Attendance",
+        parameters=[OpenApiParameter("include_deleted", OpenApiTypes.BOOL, OpenApiParameter.QUERY, required=False)],
+        responses={200: AttendanceReadSerializer(many=True)},
+    ),
+    retrieve=extend_schema(
+        tags=["Attendance"],
+        summary="Chi tiết Attendance",
+        parameters=[OpenApiParameter("id", OpenApiTypes.INT, OpenApiParameter.PATH)],
+        responses={200: AttendanceReadSerializer, 404: OpenApiResponse()},
+    ),
+    create=extend_schema(
+        tags=["Attendance"],
+        summary="Tạo Attendance (đăng ký ca/ngày)",
+        request=AttendanceCreateSerializer,
+        responses={201: AttendanceReadSerializer, 400: OpenApiResponse()},
+        examples=[
+            OpenApiExample(
+                "Create",
+                value={"employee_id": 204, "shift_template": 3, "date": "2025-10-15", "source": 0, "work_mode": 0},
+                request_only=True,
             )
+        ],
+    ),
+    partial_update=extend_schema(
+        tags=["Attendance"],
+        summary="Cập nhật Attendance",
+        request=AttendanceUpdateSerializer,
+        responses={200: AttendanceReadSerializer, 400: OpenApiResponse(), 403: OpenApiResponse()},
+    ),
+    destroy=extend_schema(
+        tags=["Attendance"],
+        summary="Xoá mềm Attendance",
+        responses={204: OpenApiResponse(description="Soft-deleted")},
+    ),
+)
+class AttendanceViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
+    """
+    Attendance CRUD + hành động bổ sung:
+    - restore, cancel (employee), approve/reject/manager-cancel (manager)
+    - my-pending, pending (manager), search
+    - batch-register (ALL-OR-NOTHING), batch-decide
+    """
+    queryset = Attendance.objects.all()
+    serializer_class = AttendanceReadSerializer
+    permission_classes = [permissions.AllowAny]
 
-        if isinstance(employee_ids, list):
-            # Validate list phần tử phải là int
-            try:
-                employee_ids = [int(x) for x in employee_ids]
-            except (TypeError, ValueError):
-                return Response(
-                    {"error": "employee_ids elements must be integers"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+    # GET /attendance/
+    def list(self, request):
+        _ = SearchFiltersSerializer(data=request.query_params)
+        _.is_valid(raise_exception=False)
 
+        filters = _build_search_filters(request)
+        include_deleted = str(request.query_params.get("include_deleted", "")).lower() in ("1", "true", "t", "yes", "y")
+        qs = filter_attendances(filters, include_deleted=include_deleted, order_by=["-date", "employee_id"])
+
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            users_map = _build_users_map_from_objs(page)
+            ser = AttendanceReadSerializer(page, many=True, context={"users_map": users_map})
+            return self.get_paginated_response(ser.data)
+
+        users_map = _build_users_map_from_objs(qs)
+        ser = AttendanceReadSerializer(qs, many=True, context={"users_map": users_map})
+        return Response(ser.data)
+
+    # GET /attendance/{id}/
+    def retrieve(self, request, pk=None):
+        obj = get_object_or_404(Attendance, id=pk)
+        users_map = _build_users_map_from_objs(obj)
+        return Response(AttendanceReadSerializer(obj, context={"users_map": users_map}).data)
+
+    # POST /attendance/
+    def create(self, request):
+        ser = AttendanceCreateSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
         try:
-            rebuilt_count = attendance_service.rebuild_summaries_for_date(employee_ids=employee_ids)
-            return Response(
-                {
-                    "date": timezone.localdate().isoformat(),
-                    "rebuilt": rebuilt_count,
-                    "filtered_by_employee_ids": bool(employee_ids),
-                    "employee_ids": employee_ids or [],
-                },
-                status=status.HTTP_200_OK
+            obj = create_attendance(
+                employee_id=data["employee_id"],
+                shift_template_id=data["shift_template"],
+                date=data["date"],
+                ts_in=data.get("ts_in"),
+                ts_out=data.get("ts_out"),
+                source=data["source"],
+                work_mode=data["work_mode"],
+                bonus=data.get("bonus"),
+                requested_by=data.get("employee_id"),
             )
         except Exception as e:
-            return Response(
-                {"error": "failed_to_rebuild_summaries", "detail": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        users_map = _build_users_map_from_objs(obj)
+        return Response(AttendanceReadSerializer(obj, context={"users_map": users_map}).data, status=status.HTTP_201_CREATED)
+
+    # PATCH /attendance/{id}/
+    def partial_update(self, request, pk=None):
+        payload = dict(request.data)
+        payload["employee_id"] = payload.get("employee_id") or request.data.get("employee_id")
+
+        ser = AttendanceUpdateSerializer(data=payload)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
+
+        actor_is_mgr = is_employee_manager(data["employee_id"])
+        try:
+            obj = update_attendance(
+                target_id=int(pk),
+                actor_employee_id=data["employee_id"],
+                shift_template_id=data.get("shift_template"),
+                date=data.get("date"),
+                ts_in=data.get("ts_in"),
+                ts_out=data.get("ts_out"),
+                source=data.get("source"),
+                work_mode=data.get("work_mode"),
+                bonus=data.get("bonus"),
+                requested_by=data.get("requested_by"),
+                actor_is_manager=actor_is_mgr,
             )
+        except PermissionError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_403_FORBIDDEN)
+        except Exception as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        users_map = _build_users_map_from_objs(obj)
+        return Response(AttendanceReadSerializer(obj, context={"users_map": users_map}).data)
+
+    # DELETE /attendance/{id}/ (soft)
+    def destroy(self, request, pk=None):
+        try:
+            soft_delete_attendance(target_id=int(pk))
+        except Exception as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # POST /attendance/{id}/restore/
+    @extend_schema(tags=["Attendance"], summary="Khôi phục bản ghi đã xoá mềm", responses={200: AttendanceReadSerializer, 400: OpenApiResponse()})
+    @action(detail=True, methods=["post"], url_path="restore")
+    def restore(self, request, pk=None):
+        try:
+            obj = restore_attendance(target_id=int(pk))
+        except Exception as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        users_map = _build_users_map_from_objs(obj)
+        return Response(AttendanceReadSerializer(obj, context={"users_map": users_map}).data)
+
+    # PUT /attendance/{id}/cancel/
+    @extend_schema(
+        tags=["Attendance"],
+        summary="Nhân viên huỷ Attendance",
+        request=CancelSerializer,
+        responses={200: AttendanceReadSerializer, 400: OpenApiResponse(), 403: OpenApiResponse()},
+    )
+    @action(detail=True, methods=["put"], url_path="cancel")
+    def cancel(self, request, pk=None):
+        ser = CancelSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
+        try:
+            obj = cancel_by_employee(
+                actor_user_id=data["employee_id"],
+                target_id=int(pk),
+                actor_is_manager=is_employee_manager(data["employee_id"]),
+            )
+        except PermissionError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_403_FORBIDDEN)
+        except Exception as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        users_map = _build_users_map_from_objs(obj)
+        return Response(AttendanceReadSerializer(obj, context={"users_map": users_map}).data)
+
+    # PUT /attendance/{id}/approve/
+    @extend_schema(
+        tags=["Attendance"],
+        summary="Quản lý duyệt / từ chối",
+        request=ApproveDecisionSerializer,
+        responses={200: AttendanceReadSerializer, 400: OpenApiResponse(), 403: OpenApiResponse()},
+        examples=[
+            OpenApiExample("Approve", value={"manager_id": 1, "approve": True, "override_overlap": False}, request_only=True),
+            OpenApiExample("Reject", value={"manager_id": 1, "approve": False, "reason": "Lý do từ chối"}, request_only=True),
+        ],
+    )
+    @action(detail=True, methods=["put"], url_path="approve")
+    def approve_or_reject(self, request, pk=None):
+        ser = ApproveDecisionSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
+
+        manager_id = data.get("manager_id")
+        if manager_id is None:
+            return Response({"detail": "manager_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not is_employee_manager(manager_id):
+            return Response({"detail": "Manager privilege required."}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            if data["approve"]:
+                obj = approve_attendance(
+                    manager_user_id=manager_id,
+                    target_id=int(pk),
+                    override_overlap=bool(data.get("override_overlap", False)),
+                )
+            else:
+                obj = reject_attendance(manager_user_id=manager_id, target_id=int(pk), reason=data.get("reason") or "")
+        except Exception as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        users_map = _build_users_map_from_objs(obj)
+        return Response(AttendanceReadSerializer(obj, context={"users_map": users_map}).data)
+
+    # PUT /attendance/{id}/manager-cancel/
+    @extend_schema(
+        tags=["Attendance"],
+        summary="Quản lý huỷ Attendance",
+        request=ManagerCancelSerializer,
+        responses={200: AttendanceReadSerializer, 400: OpenApiResponse(), 403: OpenApiResponse()},
+    )
+    @action(detail=True, methods=["put"], url_path="manager-cancel")
+    def manager_cancel(self, request, pk=None):
+        ser = ManagerCancelSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
+
+        if not is_employee_manager(data["manager_id"]):
+            return Response({"detail": "Manager privilege required."}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            obj = manager_cancel_attendance(
+                manager_user_id=data["manager_id"], target_id=int(pk), reason=data.get("reason") or ""
+            )
+        except Exception as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        users_map = _build_users_map_from_objs(obj)
+        return Response(AttendanceReadSerializer(obj, context={"users_map": users_map}).data)
+
+    # GET /attendance/my-pending?employee_id=...
+    @extend_schema(
+        tags=["Attendance"],
+        summary="Danh sách pending của tôi",
+        parameters=[OpenApiParameter("employee_id", OpenApiTypes.INT, OpenApiParameter.QUERY, required=True)],
+        responses={200: AttendanceReadSerializer(many=True), 400: OpenApiResponse()},
+    )
+    @action(detail=False, methods=["get"], url_path="my-pending")
+    def my_pending(self, request):
+        employee_id = request.query_params.get("employee_id")
+        try:
+            employee_id = int(employee_id)
+        except (TypeError, ValueError):
+            return Response({"detail": "Missing/invalid employee_id."}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = list_my_pending(employee_id)
+        users_map = _build_users_map_from_objs(qs)
+        return Response(AttendanceReadSerializer(qs, many=True, context={"users_map": users_map}).data)
+
+    # GET /attendance/pending?manager_id=...&from=YYYY-MM-DD&to=YYYY-MM-DD
+    @extend_schema(
+        tags=["Attendance"],
+        summary="Quản lý xem danh sách pending",
+        parameters=[
+            OpenApiParameter("manager_id", OpenApiTypes.INT, OpenApiParameter.QUERY, required=True),
+            OpenApiParameter("from", OpenApiTypes.DATE, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("to", OpenApiTypes.DATE, OpenApiParameter.QUERY, required=False),
+        ],
+        responses={200: AttendanceReadSerializer(many=True), 400: OpenApiResponse(), 403: OpenApiResponse()},
+    )
+    @action(detail=False, methods=["get"], url_path="pending")
+    def manager_pending(self, request):
+        manager_id = request.query_params.get("manager_id")
+        try:
+            manager_id = int(manager_id)
+        except (TypeError, ValueError):
+            return Response({"detail": "manager_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not is_employee_manager(manager_id):
+            return Response({"detail": "Manager privilege required."}, status=status.HTTP_403_FORBIDDEN)
+
+        date_from = request.query_params.get("from")
+        date_to = request.query_params.get("to")
+        qs = list_pending_for_manager(date_from, date_to)
+
+        users_map = _build_users_map_from_objs(qs)
+        return Response(AttendanceReadSerializer(qs, many=True, context={"users_map": users_map}).data)
+
+    # GET /attendance/search?...
+    @extend_schema(
+        tags=["Attendance"],
+        summary="Tìm kiếm đa điều kiện",
+        parameters=[
+            OpenApiParameter("manager_id", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("include_deleted", OpenApiTypes.BOOL, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("employee_id", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("status", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("is_valid", OpenApiTypes.BOOL, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("work_mode", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("source", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("template_code", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("template_name", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("approved_by", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("requested_by", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("date_from", OpenApiTypes.DATE, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("date_to", OpenApiTypes.DATE, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("ts_in_from", OpenApiTypes.DATETIME, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("ts_in_to", OpenApiTypes.DATETIME, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("ts_out_from", OpenApiTypes.DATETIME, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("ts_out_to", OpenApiTypes.DATETIME, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("bonus_min", OpenApiTypes.NUMBER, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("bonus_max", OpenApiTypes.NUMBER, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("q", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
+        ],
+        responses={200: AttendanceReadSerializer(many=True), 400: OpenApiResponse(), 403: OpenApiResponse()},
+    )
+    @action(detail=False, methods=["get"], url_path="search")
+    def search(self, request):
+        _ = SearchFiltersSerializer(data=request.query_params)
+        _.is_valid(raise_exception=False)
+        filters = _build_search_filters(request)
+
+        manager_id = request.query_params.get("manager_id")
+        is_mgr = False
+        if manager_id is not None:
+            try:
+                is_mgr = is_employee_manager(int(manager_id))
+            except Exception:
+                is_mgr = False
+
+        if not is_mgr and not filters.get("employee_id"):
+            return Response(
+                {"detail": "employee_id is required for non-manager search."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        include_deleted = str(request.query_params.get("include_deleted", "")).lower() in ("1", "true", "t", "yes", "y")
+        qs = filter_attendances(filters, include_deleted=include_deleted, order_by=["-date", "employee_id"])
+
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            users_map = _build_users_map_from_objs(page)
+            ser = AttendanceReadSerializer(page, many=True, context={"users_map": users_map})
+            return self.get_paginated_response(ser.data)
+
+        users_map = _build_users_map_from_objs(qs)
+        ser = AttendanceReadSerializer(qs, many=True, context={"users_map": users_map})
+        return Response(ser.data)
+
+    # POST /attendance/batch-register/
+    @extend_schema(
+        tags=["Attendance"],
+        summary="Đăng ký hàng loạt (ALL-OR-NOTHING)",
+        description=(
+            "Nhận danh sách (date, shift_template[, ts_in, ts_out]) và tạo nhiều Attendance PENDING. "
+            "All-or-nothing: nếu có bất kỳ lỗi (trùng giờ nội bộ payload hoặc trùng với DB), hệ thống sẽ trả 400 "
+            "và KHÔNG tạo bản ghi nào."
+        ),
+        request=BatchRegisterSerializer,
+        responses={
+            201: OpenApiResponse(description="All created"),
+            400: OpenApiResponse(description="Validation error(s), none created")
+        },
+        examples=[
+            OpenApiExample(
+                "Batch register next week",
+                value={
+                    "employee_id": 204,
+                    "default_source": 0,
+                    "default_work_mode": 0,
+                    "default_bonus": "0.00",
+                    "items": [
+                        {"date": "2025-10-13", "shift_template": 3},
+                        {"date": "2025-10-14", "shift_template": 3},
+                        {"date": "2025-10-15", "shift_template": 5, "ts_in": "2025-10-15T08:00:00Z", "ts_out": "2025-10-15T17:00:00Z"},
+                    ],
+                },
+                request_only=True,
+            )
+        ],
+    )
+    @action(detail=False, methods=["post"], url_path="batch-register")
+    def batch_register(self, request):
+        ser = BatchRegisterSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
+
+        created, errors = batch_register_attendance(
+            employee_id=data["employee_id"],
+            items=data["items"],
+            default_source=data["default_source"],
+            default_work_mode=data["default_work_mode"],
+            default_bonus=data.get("default_bonus") or "0.00",
+        )
+        payload = {
+            "created": AttendanceReadSerializer(
+                created,
+                many=True,
+                context={"users_map": _build_users_map_from_objs(created)},
+            ).data,
+            "errors": errors,
+        }
+        # ALL-OR-NOTHING: có lỗi -> 400, không tạo gì
+        return Response(payload, status=status.HTTP_201_CREATED if not errors else status.HTTP_400_BAD_REQUEST)
+
+    # PUT /attendance/batch-decide/
+    @extend_schema(
+        tags=["Attendance"],
+        summary="Manager duyệt/từ chối hàng loạt",
+        description="Mỗi item gồm id, approve(bool), reason?(reject), override_overlap?(approve). Partial success.",
+        request=BatchDecisionSerializer,
+        responses={200: OpenApiResponse(description="Multi-Status (partial)"), 403: OpenApiResponse(), 400: OpenApiResponse()},
+        examples=[
+            OpenApiExample(
+                "Batch approve/reject",
+                value={
+                    "manager_id": 1,
+                    "items": [
+                        {"id": 101, "approve": True, "override_overlap": False},
+                        {"id": 102, "approve": False, "reason": "Sai ca"},
+                        {"id": 103, "approve": True, "override_overlap": True},
+                    ],
+                },
+                request_only=True,
+            )
+        ],
+    )
+    @action(detail=False, methods=["put"], url_path="batch-decide")
+    def batch_decide(self, request):
+        ser = BatchDecisionSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
+
+        manager_id = data["manager_id"]
+        if not is_employee_manager(manager_id):
+            return Response({"detail": "Manager privilege required."}, status=status.HTTP_403_FORBIDDEN)
+
+        updated, errors = batch_decide_attendance(manager_user_id=manager_id, items=data["items"])
+        payload = {
+            "updated": AttendanceReadSerializer(
+                updated,
+                many=True,
+                context={"users_map": _build_users_map_from_objs(updated)},
+            ).data,
+            "errors": errors,
+        }
+        return Response(payload, status=status.HTTP_200_OK)

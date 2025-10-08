@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-from typing import Dict, Any, List
-
+from typing import Any, Dict
 from rest_framework import viewsets, status, permissions, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
-
+from erp_the20.utils.pagination import DefaultPagination
 from drf_spectacular.utils import (
-    extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample,
-    OpenApiResponse
+    extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample, OpenApiResponse
 )
 from drf_spectacular.types import OpenApiTypes
 
@@ -32,36 +30,43 @@ from erp_the20.selectors.leave_selector import (
     list_pending_for_manager,
     filter_leaves,
 )
-from erp_the20.selectors.user_selector import (
-    is_employee_manager,
-    get_external_users_map,
-)
+# optional auth helpers
+try:
+    from erp_the20.selectors.user_selector import is_employee_manager, get_external_users_map
+except Exception:
+    def is_employee_manager(_): return False
+    def get_external_users_map(_): return {}
 
 def _build_user_map_for_qs(qs) -> dict:
     ids = list(qs.values_list("employee_id", flat=True).distinct())
     return get_external_users_map(ids)
 
+
 @extend_schema_view(
+    retrieve=extend_schema(
+        tags=["Leave"],
+        summary="Lấy chi tiết đơn nghỉ theo ID",
+        parameters=[OpenApiParameter("id", OpenApiTypes.INT, OpenApiParameter.PATH, description="Leave ID")],
+        responses={200: LeaveRequestReadSerializer, 404: OpenApiResponse(description="Not found")},
+    ),
     create=extend_schema(
         tags=["Leave"],
-        summary="Tạo đơn nghỉ",
-        description="Nhân viên tạo đơn nghỉ. Truyền kèm manager_id để gửi email thông báo cho quản lý.",
+        summary="Tạo đơn nghỉ (employee)",
+        description="Nhân viên tạo đơn nghỉ (Status=SUBMITTED). Truyền kèm `manager_id` để thông báo.",
         request=LeaveCreateSerializer,
-        responses={
-            201: LeaveRequestReadSerializer,
-            400: OpenApiResponse(description="Bad Request"),
-        },
+        responses={201: LeaveRequestReadSerializer, 400: OpenApiResponse(description="Bad Request")},
         examples=[
             OpenApiExample(
-                "Tạo đơn nghỉ theo ngày",
+                "Annual leave (full days)",
                 value={
                     "employee_id": 204,
-                    "manager_id": 13,              # <-- thêm trường bắt buộc
+                    "manager_id": 13,
+                    "leave_type": LeaveRequest.LeaveType.ANNUAL,
                     "start_date": "2025-10-09",
                     "end_date": "2025-10-10",
                     "hours": None,
-                    "paid": False,
-                    "reason": "Nghỉ phép cá nhân"
+                    "paid": True,
+                    "reason": "Family event",
                 },
                 request_only=True,
             )
@@ -69,37 +74,41 @@ def _build_user_map_for_qs(qs) -> dict:
     ),
     update=extend_schema(
         tags=["Leave"],
-        summary="Cập nhật đơn nghỉ",
-        description="Nhân viên sửa đơn ở trạng thái submitted.",
+        summary="Cập nhật đơn nghỉ (employee)",
+        description="Chỉ sửa được khi Status=SUBMITTED.",
         request=LeaveUpdateSerializer,
         responses={200: LeaveRequestReadSerializer, 400: OpenApiResponse()},
     ),
     destroy=extend_schema(
         tags=["Leave"],
-        summary="Xoá đơn nghỉ",
-        description="Xoá cứng đơn nghỉ (submitted). Truyền employee_id qua query/body.",
-        parameters=[OpenApiParameter("employee_id", OpenApiTypes.INT, OpenApiParameter.QUERY, description="ID nhân viên (owner)")],
+        summary="Xoá đơn nghỉ (employee)",
+        description="Xoá cứng khi Status=SUBMITTED. Truyền `employee_id` qua query/body.",
+        parameters=[OpenApiParameter("employee_id", OpenApiTypes.INT, OpenApiParameter.QUERY, description="Owner employee_id")],
         responses={204: OpenApiResponse(description="Deleted")},
     ),
 )
 class LeaveRequestViewSet(
     viewsets.GenericViewSet,
     mixins.DestroyModelMixin,
+    mixins.RetrieveModelMixin,
 ):
     queryset = LeaveRequest.objects.all()
     serializer_class = LeaveRequestReadSerializer
     permission_classes = [permissions.AllowAny]
+    pagination_class = DefaultPagination
+
+    def retrieve(self, request, pk=None):
+        obj = self.get_object()
+        umap = get_external_users_map([obj.employee_id])
+        return Response(LeaveRequestReadSerializer(obj, context={"user_map": umap}).data)
 
     def create(self, request):
         ser = LeaveCreateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-
-        # (Không bắt buộc xác thực quyền Manager ở đây — chỉ dùng để gửi mail)
         try:
-            obj = svc_create_leave(**ser.validated_data)  # validated_data đã có manager_id
+            obj = svc_create_leave(**ser.validated_data)
         except Exception as e:
             return Response({"detail": str(e)}, status=400)
-
         umap = get_external_users_map([obj.employee_id])
         return Response(LeaveRequestReadSerializer(obj, context={"user_map": umap}).data, status=201)
 
@@ -109,10 +118,7 @@ class LeaveRequestViewSet(
         ser = LeaveUpdateSerializer(data=payload)
         ser.is_valid(raise_exception=True)
         try:
-            obj = svc_update_leave(
-                leave_id=int(pk),
-                **{k: v for k, v in ser.validated_data.items() if k not in ("id",)}
-            )
+            obj = svc_update_leave(leave_id=int(pk), **{k: v for k, v in ser.validated_data.items() if k != "id"})
         except PermissionError as e:
             return Response({"detail": str(e)}, status=403)
         except Exception as e:
@@ -136,8 +142,7 @@ class LeaveRequestViewSet(
 
     @extend_schema(
         tags=["Leave"],
-        summary="Huỷ đơn (nhân viên)",
-        description="Nhân viên huỷ đơn của mình: chuyển trạng thái `cancelled`.",
+        summary="Huỷ đơn (employee)",
         request=LeaveCancelSerializer,
         responses={200: LeaveRequestReadSerializer, 400: OpenApiResponse()},
     )
@@ -157,7 +162,7 @@ class LeaveRequestViewSet(
     @extend_schema(
         tags=["Leave"],
         summary="Quản lý phê duyệt / từ chối",
-        description="Manager quyết định đơn: `approve=true` → `approved`, `false` → `rejected`. Ghi nhận `decided_by`, `decision_ts` và gửi mail cho nhân viên.",
+        description="`approve=true` → APPROVED, `false` → REJECTED",
         request=LeaveManagerDecisionSerializer,
         responses={200: LeaveRequestReadSerializer, 400: OpenApiResponse()},
     )
@@ -169,7 +174,6 @@ class LeaveRequestViewSet(
         approve = ser.validated_data["approve"]
         if not is_employee_manager(manager_id):
             return Response({"detail": "Manager privilege required."}, status=403)
-
         try:
             obj = svc_manager_decide(leave_id=int(pk), manager_id=manager_id, approve=approve)
         except Exception as e:
@@ -180,7 +184,7 @@ class LeaveRequestViewSet(
     @extend_schema(
         tags=["Leave"],
         summary="Danh sách đơn của tôi",
-        parameters=[OpenApiParameter("employee_id", OpenApiTypes.INT, OpenApiParameter.QUERY, description="ID nhân viên")],
+        parameters=[OpenApiParameter("employee_id", OpenApiTypes.INT, OpenApiParameter.QUERY)],
         responses={200: LeaveRequestReadSerializer(many=True)},
     )
     @action(detail=False, methods=["get"], url_path="my")
@@ -190,17 +194,25 @@ class LeaveRequestViewSet(
             employee_id = int(employee_id)
         except (TypeError, ValueError):
             return Response({"detail": "Missing/invalid employee_id"}, status=400)
+
         qs = list_my_leaves(employee_id)
+        page = self.paginate_queryset(qs)                 # <<=== phân trang
         umap = _build_user_map_for_qs(qs)
-        return Response(LeaveRequestReadSerializer(qs, many=True, context={"user_map": umap}).data)
+
+        if page is not None:
+            ser = LeaveRequestReadSerializer(page, many=True, context={"user_map": umap})
+            return self.get_paginated_response(ser.data)  # <<=== trả paged
+
+        ser = LeaveRequestReadSerializer(qs, many=True, context={"user_map": umap})
+        return Response(ser.data)
 
     @extend_schema(
         tags=["Leave"],
-        summary="Danh sách đơn pending (manager)",
+        summary="Danh sách pending cho manager",
         parameters=[
-            OpenApiParameter("manager_id", OpenApiTypes.INT, OpenApiParameter.QUERY, description="Manager ID (xác thực quyền)"),
-            OpenApiParameter("from", OpenApiTypes.DATE, OpenApiParameter.QUERY, description="Từ ngày (YYYY-MM-DD)"),
-            OpenApiParameter("to", OpenApiTypes.DATE, OpenApiParameter.QUERY, description="Đến ngày (YYYY-MM-DD)"),
+            OpenApiParameter("manager_id", OpenApiTypes.INT, OpenApiParameter.QUERY),
+            OpenApiParameter("from", OpenApiTypes.DATE, OpenApiParameter.QUERY),
+            OpenApiParameter("to", OpenApiTypes.DATE, OpenApiParameter.QUERY),
         ],
         responses={200: LeaveRequestReadSerializer(many=True)},
     )
@@ -217,25 +229,36 @@ class LeaveRequestViewSet(
         date_from = request.query_params.get("from")
         date_to = request.query_params.get("to")
         qs = list_pending_for_manager(date_from, date_to)
+        page = self.paginate_queryset(qs)                 # <<===
         umap = _build_user_map_for_qs(qs)
-        return Response(LeaveRequestReadSerializer(qs, many=True, context={"user_map": umap}).data)
+
+        if page is not None:
+            ser = LeaveRequestReadSerializer(page, many=True, context={"user_map": umap})
+            return self.get_paginated_response(ser.data)  # <<===
+
+        ser = LeaveRequestReadSerializer(qs, many=True, context={"user_map": umap})
+        return Response(ser.data)
+
 
     @extend_schema(
         tags=["Leave"],
         summary="Tìm kiếm đơn nghỉ (lọc nhiều điều kiện)",
         parameters=[
-            OpenApiParameter("manager_id", OpenApiTypes.INT, OpenApiParameter.QUERY, description="Manager ID (nếu là quản lý)"),
+            OpenApiParameter("manager_id", OpenApiTypes.INT, OpenApiParameter.QUERY, description="Nếu là manager, có thể không truyền employee_id"),
             OpenApiParameter("employee_id", OpenApiTypes.STR, OpenApiParameter.QUERY, description="1 hoặc nhiều ID: '204' hoặc '204,205'"),
-            OpenApiParameter("status", OpenApiTypes.STR, OpenApiParameter.QUERY, description="submitted|approved|rejected|cancelled"),
-            OpenApiParameter("from", OpenApiTypes.DATE, OpenApiParameter.QUERY, description="start_date ≥ from"),
-            OpenApiParameter("to", OpenApiTypes.DATE, OpenApiParameter.QUERY, description="end_date ≤ to"),
+            OpenApiParameter("status", OpenApiTypes.STR, OpenApiParameter.QUERY, description="VD: '0,1' (SUBMITTED, APPROVED)"),
+            OpenApiParameter("leave_type", OpenApiTypes.STR, OpenApiParameter.QUERY, description="'0,3,4'..."),
+            OpenApiParameter("start_from", OpenApiTypes.DATE, OpenApiParameter.QUERY),
+            OpenApiParameter("start_to", OpenApiTypes.DATE, OpenApiParameter.QUERY),
+            OpenApiParameter("end_from", OpenApiTypes.DATE, OpenApiParameter.QUERY),
+            OpenApiParameter("end_to", OpenApiTypes.DATE, OpenApiParameter.QUERY),
             OpenApiParameter("q", OpenApiTypes.STR, OpenApiParameter.QUERY, description="Tìm theo lý do"),
         ],
         responses={200: LeaveRequestReadSerializer(many=True)},
     )
     @action(detail=False, methods=["get"], url_path="search")
     def search(self, request):
-        filters = request.query_params
+        filters: Dict[str, Any] = request.query_params
         manager_id = request.query_params.get("manager_id")
         is_mgr = False
         if manager_id is not None:
@@ -247,5 +270,12 @@ class LeaveRequestViewSet(
             return Response({"detail": "employee_id is required for non-manager search."}, status=400)
 
         qs = filter_leaves(filters, order_by=["-start_date", "-created_at"])
+        page = self.paginate_queryset(qs)                 # <<===
         umap = _build_user_map_for_qs(qs)
-        return Response(LeaveRequestReadSerializer(qs, many=True, context={"user_map": umap}).data)
+
+        if page is not None:
+            ser = LeaveRequestReadSerializer(page, many=True, context={"user_map": umap})
+            return self.get_paginated_response(ser.data)  # <<===
+
+        ser = LeaveRequestReadSerializer(qs, many=True, context={"user_map": umap})
+        return Response(ser.data)

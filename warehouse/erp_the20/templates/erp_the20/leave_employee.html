@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Leave – Employee</title>
+  <style>
+    :root{--bg:#0f172a;--panel:#111827;--muted:#374151;--text:#e5e7eb;--primary:#22c55e;--danger:#ef4444;--warn:#f59e0b;--border:#1f2937}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,Segoe UI,Roboto}
+    .container{max-width:1100px;margin:32px auto;padding:0 16px}
+    .row{display:grid;grid-template-columns:1.2fr 1fr;gap:16px}
+    h1,h2{margin:0 0 12px} h1{font-size:20px} h2{font-size:16px;color:#cbd5e1}
+    .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px}
+    label{display:block;margin:8px 0 4px;color:#cbd5e1}
+    input,select,textarea{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0b1220;color:var(--text)}
+    textarea{min-height:88px;resize:vertical}
+    .inline{display:flex;gap:12px}
+    .inline > div{flex:1}
+    .btn{padding:10px 14px;border-radius:10px;border:1px solid var(--border);cursor:pointer;background:#111827;color:#e5e7eb}
+    .btn.primary{background:var(--primary);border-color:#16a34a;color:#041109;font-weight:700}
+    .btn.warn{background:var(--warn);border-color:#d97706;color:#0f0f06}
+    .btn.danger{background:var(--danger);border-color:#dc2626;color:#fff}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .table{width:100%;border-collapse:collapse;margin-top:8px}
+    .table th,.table td{padding:10px;border-bottom:1px solid var(--border);text-align:left}
+    .badge{padding:2px 8px;border-radius:100px;font-size:12px;border:1px solid #263040;background:#0b1220}
+    .muted{color:#9ca3af}
+    .right{display:flex;gap:8px;justify-content:flex-end}
+    .pagination{display:flex;gap:8px;align-items:center;margin-top:8px}
+    .error{color:#fecaca}
+    .success{color:#bbf7d0}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Leave – Employee</h1>
+    <div class="row">
+      <div class="card">
+        <h2>Submit a request</h2>
+        <form id="leaveForm">
+          <div class="inline">
+            <div>
+              <label>Employee ID</label>
+              <input type="number" id="employee_id" required />
+            </div>
+            <div>
+              <label>Manager ID</label>
+              <input type="number" id="manager_id" required />
+            </div>
+          </div>
+          <div class="inline">
+            <div>
+              <label>Leave type</label>
+              <select id="leave_type" required>
+                <!-- Mirror IntegerChoices in models.LeaveRequest.LeaveType -->
+                <option value="0">Annual</option>
+                <option value="1">Unpaid</option>
+                <option value="2">Sick</option>
+                <option value="3">Paid special</option>
+                <option value="4">Overtime</option>
+                <option value="5">Online</option>
+                <option value="6">Shift change</option>
+                <option value="7">Late in</option>
+                <option value="8">Early out</option>
+              </select>
+            </div>
+            <div>
+              <label>Paid?</label>
+              <select id="paid">
+                <option value="false">No</option>
+                <option value="true">Yes</option>
+              </select>
+            </div>
+          </div>
+          <div class="inline">
+            <div>
+              <label>Start date</label>
+              <input type="date" id="start_date" required />
+            </div>
+            <div>
+              <label>End date</label>
+              <input type="date" id="end_date" required />
+            </div>
+          </div>
+          <div class="inline">
+            <div>
+              <label>Hours (optional)</label>
+              <input type="number" id="hours" step="0.25" min="0" placeholder="e.g. 4" />
+            </div>
+            <div>
+              <label>&nbsp;</label>
+              <button class="btn primary" id="btnSubmit" type="submit">Submit</button>
+            </div>
+          </div>
+          <label>Reason (optional)</label>
+          <textarea id="reason" placeholder="Add a short note..."></textarea>
+          <div id="formMsg" class="muted" style="margin-top:6px"></div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>My requests</h2>
+        <div class="toolbar">
+          <label class="muted">Employee ID</label>
+          <input id="filter_emp" type="number" style="width:140px" />
+          <label class="muted">Status</label>
+          <select id="filter_status" style="width:160px">
+            <option value="">All</option>
+            <option value="0">Submitted</option>
+            <option value="1">Approved</option>
+            <option value="2">Rejected</option>
+            <option value="3">Cancelled</option>
+          </select>
+          <label class="muted">Page size</label>
+          <input id="page_size" type="number" min="1" max="200" value="20" style="width:90px" />
+          <button class="btn" id="btnReload">Reload</button>
+        </div>
+        <table class="table" id="tblMy">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Type</th>
+              <th>Paid</th>
+              <th>Period</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div class="pagination">
+          <button class="btn" id="prev">Prev</button>
+          <span id="pageInfo" class="muted"></span>
+          <button class="btn" id="next">Next</button>
+        </div>
+        <div id="listMsg" class="muted" style="margin-top:6px"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const API_BASE = "/the20/leave/requests";
+
+function getCookie(name){const v=`; ${document.cookie}`.split(`; ${name}=`);if(v.length===2)return v.pop().split(';').shift()}
+const CSRF = getCookie('csrftoken');
+const headers = {'Content-Type':'application/json','X-CSRFToken':CSRF};
+
+// Form submit
+const form = document.getElementById('leaveForm');
+form.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const data = {
+    employee_id: parseInt(document.getElementById('employee_id').value,10),
+    manager_id: parseInt(document.getElementById('manager_id').value,10),
+    leave_type: parseInt(document.getElementById('leave_type').value,10),
+    start_date: document.getElementById('start_date').value,
+    end_date: document.getElementById('end_date').value,
+    hours: document.getElementById('hours').value ? parseFloat(document.getElementById('hours').value): null,
+    paid: document.getElementById('paid').value === 'true',
+    reason: document.getElementById('reason').value || ''
+  };
+  const msg = document.getElementById('formMsg');
+  msg.textContent = 'Submitting...';
+  try{
+    const res = await fetch(API_BASE+'/',{method:'POST',credentials:'same-origin',headers,body:JSON.stringify(data)});
+    const json = await res.json();
+    if(!res.ok) throw new Error(json.detail || 'Submit failed');
+    msg.innerHTML = `<span class="success">Created #${json.id}</span>`;
+    // auto refresh list for this employee
+    document.getElementById('filter_emp').value = data.employee_id;
+    loadMy(1);
+  }catch(err){msg.innerHTML = `<span class="error">${err.message}</span>`}
+});
+
+// List + pagination
+let currentPage = 1; let totalCount = 0; let nextUrl=null; let prevUrl=null;
+
+async function loadMy(page){
+  currentPage = page || 1;
+  const emp = document.getElementById('filter_emp').value;
+  if(!emp){document.getElementById('listMsg').textContent='Enter Employee ID and click Reload.';return}
+  const status = document.getElementById('filter_status').value;
+  const pageSize = parseInt(document.getElementById('page_size').value || '20',10);
+  const params = new URLSearchParams({employee_id:String(emp), page:String(currentPage), page_size:String(pageSize)});
+  if(status!=="") params.set('status', status);
+  document.getElementById('listMsg').textContent = 'Loading...';
+  try{
+    const res = await fetch(`${API_BASE}/my/?${params.toString()}`, {credentials:'same-origin'});
+    const json = await res.json();
+    if(!res.ok) throw new Error(json.detail || 'Load failed');
+    renderTable(json.results || []);
+    totalCount = json.count || 0; nextUrl = json.next; prevUrl = json.previous;
+    const pageInfo = document.getElementById('pageInfo');
+    const startIdx = (currentPage-1)*pageSize + 1;
+    const endIdx = Math.min(startIdx + (json.results||[]).length - 1, totalCount);
+    pageInfo.textContent = `${startIdx}-${endIdx} / ${totalCount}`;
+    document.getElementById('listMsg').textContent = '';
+  }catch(err){
+    document.getElementById('listMsg').innerHTML = `<span class="error">${err.message}</span>`;
+  }
+}
+
+function renderTable(rows){
+  const tbody = document.querySelector('#tblMy tbody');
+  tbody.innerHTML = '';
+  for(const r of rows){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${r.id}</td>
+      <td>${r.leave_type_display || r.leave_type}</td>
+      <td>${r.paid ? 'Yes' : 'No'}</td>
+      <td>${r.start_date} → ${r.end_date}</td>
+      <td><span class="badge">${r.status_display || r.status}</span></td>
+      <td class="right">
+        <button class="btn warn" data-act="cancel" data-id="${r.id}" ${r.status!==0?'disabled':''}>Cancel</button>
+        <button class="btn danger" data-act="delete" data-id="${r.id}" ${r.status!==0?'disabled':''}>Delete</button>
+      </td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+document.getElementById('btnReload').addEventListener('click', ()=>loadMy(1));
+document.getElementById('prev').addEventListener('click', ()=>{ if(prevUrl){ currentPage=Math.max(1,currentPage-1); loadMy(currentPage);} });
+document.getElementById('next').addEventListener('click', ()=>{ if(nextUrl){ currentPage=currentPage+1; loadMy(currentPage);} });
+
+document.querySelector('#tblMy').addEventListener('click', async (e)=>{
+  const btn = e.target.closest('button'); if(!btn) return;
+  const id = btn.dataset.id; const act = btn.dataset.act;
+  try{
+    if(act==='cancel'){
+      const emp = parseInt(document.getElementById('filter_emp').value,10);
+      const res = await fetch(`${API_BASE}/${id}/cancel/`, {method:'PUT',credentials:'same-origin',headers,body:JSON.stringify({employee_id:emp})});
+      const json = await res.json();
+      if(!res.ok) throw new Error(json.detail || 'Cancel failed');
+    }else if(act==='delete'){
+      const emp = parseInt(document.getElementById('filter_emp').value,10);
+      const res = await fetch(`${API_BASE}/${id}/?employee_id=${emp}`, {method:'DELETE',credentials:'same-origin',headers});
+      if(!res.ok){const j = await res.json(); throw new Error(j.detail || 'Delete failed')}    
+    }
+    loadMy(currentPage);
+  }catch(err){alert(err.message)}
+});
+</script>
+</body>
+</html>

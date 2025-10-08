@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>Shift Templates</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root { --bg:#0b1020; --panel:#131a2a; --muted:#a7b0c0; --fg:#f2f5fa; --accent:#6ea8fe; --red:#ff6b6b; --green:#51cf66; }
+    html,body { margin:0; padding:0; background:var(--bg); color:var(--fg); font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,"Noto Sans",sans-serif; }
+    .container { max-width:1100px; margin:32px auto; padding:0 16px; }
+    .card { background:var(--panel); border:1px solid #223; border-radius:14px; padding:16px; box-shadow:0 6px 20px rgba(0,0,0,.25); }
+    h1 { font-size:24px; margin:0 0 12px; }
+    .muted { color:var(--muted); font-size:13px; }
+    .row { display:flex; flex-wrap:wrap; gap:12px; }
+    .row > * { flex:1 1 220px; }
+    .q { display:flex; gap:8px; align-items:center; }
+    input[type="text"], input[type="time"], input[type="number"], select {
+      width:100%; padding:10px 12px; border-radius:10px; border:1px solid #2a3348; background:#0f1626; color:var(--fg);
+      outline:none;
+    }
+    input[type="checkbox"] { transform: scale(1.1); }
+    button {
+      border:0; padding:10px 14px; border-radius:10px; background:var(--accent); color:#0b0f1a; font-weight:600; cursor:pointer;
+    }
+    button.secondary { background:#394566; color:var(--fg); }
+    button.ghost { background:transparent; border:1px solid #2a3348; color:var(--fg); }
+    button.danger { background:var(--red); color:#000; }
+    button.success { background:var(--green); color:#001; }
+    table { width:100%; border-collapse:collapse; margin-top:14px; }
+    th, td { padding:10px 8px; border-bottom:1px solid #223; text-align:left; font-size:14px; }
+    th { color:#cdd6e8; font-weight:600; }
+    .actions { display:flex; gap:6px; flex-wrap:wrap; }
+    .badge { font-size:12px; padding:2px 8px; border-radius:999px; background:#233152; color:#bcd; }
+    .pill { display:inline-flex; align-items:center; gap:6px; }
+    .pill input[type="checkbox"] { margin:0; }
+    .toolbar { display:flex; gap:10px; align-items:center; justify-content:space-between; margin-bottom:8px; }
+    .error { background:#3c1f1f; color:#ffd7d7; border:1px solid #5d2a2a; padding:8px 10px; border-radius:8px; margin-top:8px; display:none; }
+    .ok { background:#163321; color:#b8f7c4; border:1px solid #245a35; padding:8px 10px; border-radius:8px; margin-top:8px; display:none; }
+    .grid { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; }
+    .grid > div { display:flex; flex-direction:column; gap:6px; }
+    @media (max-width:900px){ .grid{ grid-template-columns:repeat(2,1fr);} }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>Shift Templates</h1>
+      <div class="toolbar">
+        <div class="row" style="flex:1">
+          <div><input id="q" type="text" placeholder="Tìm theo code / name..." /></div>
+          <div>
+            <select id="overnightFilter">
+              <option value="">Overnight: Any</option>
+              <option value="true">Overnight: True</option>
+              <option value="false">Overnight: False</option>
+            </select>
+          </div>
+          <div>
+            <select id="ordering">
+              <option value="">Sắp xếp</option>
+              <option value="code">code ↑</option>
+              <option value="-code">code ↓</option>
+              <option value="created_at">created_at ↑</option>
+              <option value="-created_at">created_at ↓</option>
+            </select>
+          </div>
+          <div class="pill"><input id="includeDeleted" type="checkbox" /> <label for="includeDeleted">Hiện bản đã xoá (soft)</label></div>
+        </div>
+        <div class="row" style="flex:0 0 auto">
+          <button id="reloadBtn" class="secondary">Reload</button>
+        </div>
+      </div>
+
+      <div id="alertError" class="error"></div>
+      <div id="alertOk" class="ok"></div>
+
+      <table id="listTable">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Code</th>
+            <th>Name</th>
+            <th>Start</th>
+            <th>End</th>
+            <th>Break</th>
+            <th>Overnight</th>
+            <th>Pay</th>
+            <th>Deleted At</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="listBody">
+          <tr><td colspan="10" class="muted">Đang tải...</td></tr>
+        </tbody>
+      </table>
+
+      <div class="row" style="margin-top:10px; align-items:center;">
+        <button id="prevBtn" class="ghost">← Prev</button>
+        <span id="pageHint" class="muted"></span>
+        <button id="nextBtn" class="ghost">Next →</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:18px;">
+      <h1>Tạo / Cập nhật (versioning)</h1>
+      <div class="muted">Cập nhật sẽ <b>archive</b> bản cũ (set <code>deleted_at</code>) và tạo bản mới (ID mới).</div>
+
+      <form id="formCU" class="grid" onsubmit="return false;">
+        <input type="hidden" id="editId" />
+        <div>
+          <label for="code">Code</label>
+          <input id="code" type="text" maxlength="16" required />
+        </div>
+        <div>
+          <label for="name">Name</label>
+          <input id="name" type="text" maxlength="120" required />
+        </div>
+        <div>
+          <label for="start_time">Start Time</label>
+          <input id="start_time" type="time" required />
+        </div>
+        <div>
+          <label for="end_time">End Time</label>
+          <input id="end_time" type="time" required />
+        </div>
+        <div>
+          <label for="break_minutes">Break Minutes</label>
+          <input id="break_minutes" type="number" min="0" max="480" step="1" value="0" />
+        </div>
+        <div>
+          <label for="overnight">Overnight</label>
+          <select id="overnight">
+            <option value="false">False</option>
+            <option value="true">True</option>
+          </select>
+        </div>
+        <div>
+          <label for="pay_factor">Pay Factor</label>
+          <input id="pay_factor" type="number" min="0" max="5" step="0.01" value="1.00" />
+        </div>
+        <div style="display:flex; align-items:flex-end; gap:8px;">
+          <button id="submitBtn" type="submit">Create</button>
+          <button id="resetBtn" type="button" class="secondary">Reset</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // ====== CONFIG ======
+    const API_BASE = "http://127.0.0.1:8000/the20/shifts/shift-templates/"; // khớp với router backend
+    let nextUrl = null, prevUrl = null;
+
+    // CSRF cookie (SessionAuth)
+    function getCookie(name) {
+      let cookieValue = null;
+      if (document.cookie && document.cookie !== "") {
+        const cookies = document.cookie.split(";");
+        for (let i = 0; i < cookies.length; i++) {
+          const cookie = cookies[i].trim();
+          if (cookie.substring(0, name.length + 1) === (name + "=")) {
+            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+            break;
+          }
+        }
+      }
+      return cookieValue;
+    }
+    const csrftoken = getCookie("csrftoken");
+
+    function showError(msg) {
+      const el = document.getElementById("alertError");
+      el.style.display = "block";
+      el.textContent = typeof msg === "string" ? msg : JSON.stringify(msg);
+      setTimeout(()=>{ el.style.display = "none"; }, 5000);
+    }
+    function showOk(msg) {
+      const el = document.getElementById("alertOk");
+      el.style.display = "block";
+      el.textContent = msg;
+      setTimeout(()=>{ el.style.display = "none"; }, 3000);
+    }
+
+    function buildListUrl(base=API_BASE) {
+      const q = document.getElementById("q").value.trim();
+      const overnight = document.getElementById("overnightFilter").value;
+      const ordering = document.getElementById("ordering").value;
+      const includeDeleted = document.getElementById("includeDeleted").checked;
+
+      const params = new URLSearchParams();
+      if (q) params.set("q", q);
+      if (overnight) params.set("overnight", overnight);
+      if (ordering) params.set("ordering", ordering);
+      if (includeDeleted) params.set("include_deleted", "true");
+      return base + (params.toString() ? `?${params.toString()}` : "");
+    }
+
+    async function loadList(url=null) {
+      try {
+        const endpoint = url || buildListUrl();
+        const res = await fetch(endpoint, { credentials: "same-origin" });
+        if (!res.ok) throw await res.json().catch(()=>({detail: res.statusText}));
+        const data = await res.json();
+        // Nếu có pagination (DRF PageNumberPagination)
+        const results = Array.isArray(data) ? data : data.results || [];
+        nextUrl = data.next || null;
+        prevUrl = data.previous || null;
+        document.getElementById("pageHint").textContent =
+          (data.count !== undefined) ? `Tổng: ${data.count}` : "";
+
+        renderTable(results);
+      } catch (e) {
+        showError(e.detail || e);
+      }
+    }
+
+    function renderTable(items) {
+      const tbody = document.getElementById("listBody");
+      tbody.innerHTML = "";
+      if (!items.length) {
+        tbody.innerHTML = `<tr><td colspan="10" class="muted">Không có dữ liệu.</td></tr>`;
+        return;
+      }
+      for (const it of items) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${it.id}</td>
+          <td><code>${it.code}</code></td>
+          <td>${it.name}</td>
+          <td>${it.start_time || ""}</td>
+          <td>${it.end_time || ""}</td>
+          <td>${it.break_minutes}</td>
+          <td>${it.overnight ? "✓" : ""}</td>
+          <td>${it.pay_factor}</td>
+          <td class="muted">${it.deleted_at ? new Date(it.deleted_at).toLocaleString() : ""}</td>
+          <td class="actions">
+            <button class="ghost" data-action="edit" data-id="${it.id}">Edit</button>
+            <button class="danger" data-action="delete" data-id="${it.id}">Delete</button>
+            <button class="success" data-action="restore" data-id="${it.id}">Restore</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+
+    // Prefill form for versioning update (we fetch one row detail)
+    async function loadDetailAndPrefill(id) {
+      try {
+        const res = await fetch(`${API_BASE}${id}/`, { credentials: "same-origin" });
+        if (!res.ok) throw await res.json().catch(()=>({detail: res.statusText}));
+        const it = await res.json();
+        document.getElementById("editId").value = it.id;
+        document.getElementById("code").value = it.code;
+        document.getElementById("name").value = it.name;
+        document.getElementById("start_time").value = (it.start_time || "").slice(0,5);
+        document.getElementById("end_time").value = (it.end_time || "").slice(0,5);
+        document.getElementById("break_minutes").value = it.break_minutes ?? 0;
+        document.getElementById("overnight").value = it.overnight ? "true" : "false";
+        document.getElementById("pay_factor").value = it.pay_factor ?? "1.00";
+        document.getElementById("submitBtn").textContent = "Update (versioned)";
+        showOk("Đã nạp dữ liệu để cập nhật (versioning).");
+      } catch (e) {
+        showError(e.detail || e);
+      }
+    }
+
+    async function createOrUpdate() {
+      const id = document.getElementById("editId").value.trim();
+      const payload = {
+        code: document.getElementById("code").value.trim(),
+        name: document.getElementById("name").value.trim(),
+        start_time: document.getElementById("start_time").value + ":00",
+        end_time: document.getElementById("end_time").value + ":00",
+        break_minutes: Number(document.getElementById("break_minutes").value || 0),
+        overnight: document.getElementById("overnight").value === "true",
+        pay_factor: document.getElementById("pay_factor").value || "1.00",
+      };
+
+      const opts = {
+        method: id ? "PATCH" : "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrftoken,
+        },
+        body: JSON.stringify(payload),
+      };
+
+      try {
+        const url = id ? `${API_BASE}${id}/` : API_BASE;
+        const res = await fetch(url, opts);
+        const data = await res.json().catch(()=>({}));
+        if (!res.ok) throw data;
+        showOk(id ? "Cập nhật (versioned) thành công." : "Tạo mới thành công.");
+        resetForm();
+        await loadList();
+      } catch (e) {
+        showError(e.detail || e.code || JSON.stringify(e));
+      }
+    }
+
+    async function softDelete(id) {
+      if (!confirm("Xóa mềm bản ghi này?")) return;
+      try {
+        const res = await fetch(`${API_BASE}${id}/`, {
+          method: "DELETE",
+          credentials: "same-origin",
+          headers: { "X-CSRFToken": csrftoken }
+        });
+        if (!res.ok) throw await res.json().catch(()=>({detail: res.statusText}));
+        showOk("Đã xóa mềm.");
+        await loadList();
+      } catch (e) {
+        showError(e.detail || e);
+      }
+    }
+
+    async function restore(id) {
+      try {
+        const res = await fetch(`${API_BASE}${id}/restore/`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "X-CSRFToken": csrftoken }
+        });
+        const data = await res.json().catch(()=>({}));
+        if (!res.ok) throw data;
+        showOk("Đã khôi phục.");
+        await loadList();
+      } catch (e) {
+        showError(e.detail || e);
+      }
+    }
+
+    function resetForm() {
+      document.getElementById("formCU").reset();
+      document.getElementById("editId").value = "";
+      document.getElementById("pay_factor").value = "1.00";
+      document.getElementById("break_minutes").value = "0";
+      document.getElementById("overnight").value = "false";
+      document.getElementById("submitBtn").textContent = "Create";
+    }
+
+    // ====== events ======
+    document.getElementById("reloadBtn").addEventListener("click", ()=>loadList());
+    document.getElementById("q").addEventListener("keydown", (e)=>{ if (e.key==="Enter") loadList(); });
+    document.getElementById("overnightFilter").addEventListener("change", ()=>loadList());
+    document.getElementById("ordering").addEventListener("change", ()=>loadList());
+    document.getElementById("includeDeleted").addEventListener("change", ()=>loadList());
+
+    document.getElementById("formCU").addEventListener("submit", createOrUpdate);
+    document.getElementById("resetBtn").addEventListener("click", resetForm);
+
+    document.getElementById("listBody").addEventListener("click", (e)=>{
+      const btn = e.target.closest("button");
+      if (!btn) return;
+      const id = btn.getAttribute("data-id");
+      const action = btn.getAttribute("data-action");
+      if (action === "edit") loadDetailAndPrefill(id);
+      if (action === "delete") softDelete(id);
+      if (action === "restore") restore(id);
+    });
+
+    document.getElementById("prevBtn").addEventListener("click", ()=>{ if (prevUrl) loadList(prevUrl); });
+    document.getElementById("nextBtn").addEventListener("click", ()=>{ if (nextUrl) loadList(nextUrl); });
+
+    // first load
+    loadList();
+  </script>
+</body>
+</html>

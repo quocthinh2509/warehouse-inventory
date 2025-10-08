@@ -5,17 +5,23 @@ from erp_the20.models import LeaveRequest
 
 
 class LeaveRequestReadSerializer(serializers.ModelSerializer):
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    leave_type_display = serializers.CharField(source="get_leave_type_display", read_only=True)
+
     class Meta:
         model = LeaveRequest
         fields = [
             "id",
             "employee_id",
             "paid",
+            "leave_type",
+            "leave_type_display",
             "start_date",
             "end_date",
             "hours",
             "reason",
             "status",
+            "status_display",
             "decision_ts",
             "decided_by",
             "created_at",
@@ -23,12 +29,12 @@ class LeaveRequestReadSerializer(serializers.ModelSerializer):
         ]
 
 
-# --------- Employee writes ---------
-
+# ===== Employee writes =====
 class LeaveCreateSerializer(serializers.Serializer):
     employee_id = serializers.IntegerField()
-    manager_id  = serializers.IntegerField()  # <-- thêm: dùng để gửi mail cho quản lý
+    manager_id = serializers.IntegerField()  # để gửi notify/validate quyền ngoài view
     paid = serializers.BooleanField(required=False, default=False)
+    leave_type = serializers.ChoiceField(choices=LeaveRequest.LeaveType.choices)
     start_date = serializers.DateField()
     end_date = serializers.DateField()
     hours = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
@@ -36,9 +42,9 @@ class LeaveCreateSerializer(serializers.Serializer):
 
 
 class LeaveUpdateSerializer(serializers.Serializer):
-    # pk nằm trên URL; payload có thể gửi lại employee_id để dùng chung validate
-    employee_id = serializers.IntegerField()
+    employee_id = serializers.IntegerField()  # owner
     paid = serializers.BooleanField(required=False)
+    leave_type = serializers.ChoiceField(choices=LeaveRequest.LeaveType.choices, required=False)
     start_date = serializers.DateField(required=False)
     end_date = serializers.DateField(required=False)
     hours = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
@@ -46,13 +52,10 @@ class LeaveUpdateSerializer(serializers.Serializer):
 
 
 class LeaveCancelSerializer(serializers.Serializer):
-    # nhân viên tự huỷ: employee_id chính là người tạo
     employee_id = serializers.IntegerField()
 
 
-# --------- Manager decisions ---------
-
+# ===== Manager decision =====
 class LeaveManagerDecisionSerializer(serializers.Serializer):
     manager_id = serializers.IntegerField()
     approve = serializers.BooleanField()
-    # Có thể bổ sung decision_note nếu cần trong tương lai

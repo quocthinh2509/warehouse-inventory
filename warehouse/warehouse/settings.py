@@ -191,10 +191,12 @@ LOGGING = {
         "console": {"class": "logging.StreamHandler"},
     },
     "loggers": {
-        # Log our inventory app (incl. inventory.scan) at INFO
         "inventory": {"handlers": ["console"], "level": "INFO"},
+        "erp_the20": {"handlers": ["console"], "level": "INFO"},  # <--- THÊM
+        "erp_the20.services": {"handlers": ["console"], "level": "INFO"},  # <--- THÊM
     },
 }
+
 
 CACHES = {
     "default": {
@@ -219,7 +221,7 @@ EMAIL_TIMEOUT = 20
 EMAIL_SUBJECT_PREFIX = "[THE20] "
 
 
-
+LARK_ATTENDANCE_WEBHOOK_URL ="https://open.larksuite.com/open-apis/bot/v2/hook/3f29cd9b-8fd7-45a2-bdec-c9130924698c"
 # ===== Lark / Feishu Webhook =====
 # Webhook của bot trong group Lark (dạng: https://open.feishu.cn/open-apis/bot/v2/hook/XXXXX)
 LARK_LEAVE_WEBHOOK_URL = "https://open.larksuite.com/open-apis/bot/v2/hook/3f29cd9b-8fd7-45a2-bdec-c9130924698c"

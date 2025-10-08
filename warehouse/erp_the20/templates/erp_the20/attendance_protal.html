@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ERP The20 • Đăng ký ca & Duyệt ca</title>
+  <style>
+    :root {
+      --bg: #0f1115; --panel: #151922; --muted: #7a8599; --text: #e6eefc; --primary: #4f8cff; --ok: #2ecc71; --bad: #ff5c5c; --warn:#f1c40f;
+      --border: #2a3140; --chip:#1e2633;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin:0; padding:0; background:var(--bg); color:var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; }
+    h1,h2,h3 { margin: 0 0 .6rem 0; }
+    h1 { font-size: 1.6rem; }
+    h2 { font-size: 1.2rem; color: var(--muted); font-weight: 600; }
+    a { color: var(--primary); text-decoration: none; }
+    .wrap { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
+    .row { display: grid; gap: 16px; }
+    .row.cols-2 { grid-template-columns: 1fr 1fr; }
+    .row.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+    .row.cols-4 { grid-template-columns: repeat(4, 1fr); }
+    .mb16{ margin-bottom: 16px; } .mb24{ margin-bottom: 24px; } .mt8{ margin-top:8px; }
+    .muted { color: var(--muted); }
+    .input, select, button { background:#0f131a; border:1px solid var(--border); border-radius:10px; color:var(--text); padding:10px 12px; }
+    button { cursor: pointer; }
+    button.primary{ background: var(--primary); border-color: #4f8cff; color: white; }
+    button.ok{ background: var(--ok); border-color: #21b963; }
+    button.bad{ background: var(--bad); border-color: #e24b4b; }
+    button.ghost{ background: transparent; }
+    button:disabled { opacity: .6; cursor: not-allowed; }
+    table { width:100%; border-collapse: collapse; }
+    th, td { border-bottom:1px dashed var(--border); padding:10px 8px; text-align:left; vertical-align: top; }
+    th { color: #a6b2c8; font-weight: 600; }
+    tr:hover { background: #131826; }
+    .flex { display:flex; gap:10px; align-items:center; flex-wrap: wrap; }
+    .right { justify-content: flex-end; }
+    .chip { background:var(--chip); border:1px solid var(--border); padding:4px 8px; border-radius:20px; font-size:.9rem; color:#c7d3ea; }
+    .pill { padding:3px 8px; border-radius: 999px; font-size: .8rem; border:1px solid var(--border); }
+    .pill.ok{ background:#15301f; color:#9ef3c5; border-color:#1e5f3b }
+    .pill.bad{ background:#3a1720; color:#ff9fb1; border-color:#6e2536 }
+    .pill.pending{ background:#2b2b16; color:#efe3a1; border-color:#6a5f2a }
+    .grid-week { display:grid; grid-template-columns: repeat(7, 1fr); gap:12px; }
+    .day-col { background:#0f131a; border:1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    .day-head { padding:10px 12px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+    .day-list { max-height: 360px; overflow:auto; }
+    .row-item { display:flex; align-items:center; gap:8px; padding:8px 10px; border-bottom:1px dashed #1b2331; }
+    .row-item:last-child{ border-bottom:none; }
+    .time { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:.9rem; color:#a9c3ff; }
+    .code { font-family: ui-monospace, monospace; background:#0b0f15; border:1px solid var(--border); padding:2px 6px; border-radius:6px; }
+    .tabs { display:flex; gap:8px; margin-bottom: 12px; }
+    .tab { padding:10px 14px; border:1px solid var(--border); background:#0f131a; color:#cbd6ea; border-radius:10px; cursor:pointer; }
+    .tab.active { background: #1a2230; color:white; border-color:#2e3b52; }
+    .section { display:none; }
+    .section.active { display:block; }
+    .bar { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .bar .flex { gap:8px; }
+    .w100{ width:100%; }
+    .w120{ width:120px; } .w160{ width:160px; }
+    .note { font-size:.9rem; color:#aeb8cd; }
+    .err { color: var(--bad); }
+    .oktxt{ color: var(--ok); }
+    .skeleton{ background: linear-gradient(90deg, #111522 25%, #0c101a 37%, #111522 63%); background-size:400% 100%; animation: shimmer 1.4s ease infinite; border-radius:10px; height:14px; }
+    @keyframes shimmer { 0%{background-position:100% 0} 100%{background-position:-100% 0} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="tabs">
+      <button class="tab active" data-tab="employee">Nhân viên</button>
+      <button class="tab" data-tab="manager">Quản lý</button>
+    </div>
+
+    <!-- ================= EMPLOYEE ================= -->
+    <section id="tab-employee" class="section active">
+      <div class="card mb24">
+        <div class="bar mb16">
+          <h1>Đăng ký ca tuần tới</h1>
+          <div class="flex right">
+            <label class="muted">Employee ID</label>
+            <input id="empId" class="input w120" placeholder="e.g. 204" />
+            <label class="muted">Nguồn</label>
+            <select id="defaultSource">
+              <option value="0">0</option>
+              <option value="1">1</option>
+            </select>
+            <label class="muted">Work mode</label>
+            <select id="defaultWorkMode">
+              <option value="0">0</option>
+              <option value="1">1</option>
+            </select>
+            <label class="muted">Bonus</label>
+            <input id="defaultBonus" class="input w120" value="0.00"/>
+          </div>
+        </div>
+        <div class="flex mb16">
+          <div class="chip" id="weekLabel">Tuần: …</div>
+          <button class="ghost" id="prevWeek">⇠ Tuần trước</button>
+          <button class="ghost" id="nextWeek">Tuần sau ⇢</button>
+          <span class="note">Chọn nhiều ca/1 ngày (giữ trật tự & không trùng giờ). Ca hiển thị từ <b>Shift Templates</b> sắp xếp theo <span class="code">start_time</span>.</span>
+        </div>
+        <div id="weekGrid" class="grid-week mb16"></div>
+        <div class="bar">
+          <div id="empMsg" class="note"></div>
+          <div class="flex right">
+            <button id="clearSelection" class="">Bỏ chọn</button>
+            <button id="registerBtn" class="primary">Đăng ký theo lô</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="bar mb16">
+          <h2>Dashboard đăng ký (toàn bộ)</h2>
+          <div class="flex right">
+            <label class="muted">Manager ID</label>
+            <input id="mgrIdForDash" class="input w120" placeholder="nếu là quản lý" />
+            <label class="muted">Từ ngày</label><input id="dashFrom" type="date" class="input" />
+            <label class="muted">Đến ngày</label><input id="dashTo" type="date" class="input" />
+            <button id="refreshDash" class="">Làm mới</button>
+          </div>
+        </div>
+        <div class="mb16 note">Sắp xếp theo ngày & <span class="code">start_time</span> của template (client-side).</div>
+        <div class="table-wrap">
+          <table id="dashTable">
+            <thead>
+              <tr>
+                <th>Ngày</th>
+                <th>Employee</th>
+                <th>Template</th>
+                <th>Giờ</th>
+                <th>Status</th>
+                <th>Source</th>
+                <th>Work mode</th>
+                <th>Bonus</th>
+                <th>Requested By</th>
+                <th>Approved By</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= MANAGER ================= -->
+    <section id="tab-manager" class="section">
+      <div class="card mb24">
+        <div class="bar mb16">
+          <h1>Quản lý duyệt ca</h1>
+          <div class="flex right">
+            <label class="muted">Manager ID</label>
+            <input id="managerId" class="input w120" placeholder="vd 1" />
+            <label class="muted">Từ ngày</label><input id="pendingFrom" type="date" class="input" />
+            <label class="muted">Đến ngày</label><input id="pendingTo" type="date" class="input" />
+            <button id="loadPending">Tải danh sách pending</button>
+          </div>
+        </div>
+        <div class="bar mb8">
+          <div class="note">Chọn nhanh & duyệt hàng loạt. Có thể bật <span class="code">override_overlap</span> khi approve.</div>
+          <div class="flex right">
+            <label class="muted">Override overlap</label>
+            <input type="checkbox" id="overrideApprove" />
+            <button id="approveSelected" class="ok">Duyệt đã chọn</button>
+            <input id="rejectReason" class="input w160" placeholder="Lý do từ chối" />
+            <button id="rejectSelected" class="bad">Từ chối đã chọn</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="pendingTable">
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="toggleAllPending"/></th>
+                <th>ID</th>
+                <th>Ngày</th>
+                <th>Employee</th>
+                <th>Template</th>
+                <th>Giờ</th>
+                <th>Requested</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="bar mb16">
+          <h2>Đã duyệt gần đây</h2>
+          <div class="flex right">
+            <label class="muted">Từ ngày</label><input id="approvedFrom" type="date" class="input" />
+            <label class="muted">Đến ngày</label><input id="approvedTo" type="date" class="input" />
+            <button id="loadApproved" class="">Làm mới</button>
+          </div>
+        </div>
+        <table id="approvedTable">
+          <thead>
+            <tr>
+              <th>Ngày</th>
+              <th>Employee</th>
+              <th>Template</th>
+              <th>Giờ</th>
+              <th>Approved By</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // =========================
+    // CONFIG
+    // =========================
+    const API_BASE = "/the20"; // base path đã mount trong urls.py
+    const ENDPOINTS = {
+      shiftTemplates: `${API_BASE}/shifts/shift-templates/`,              // GET list templates (expect JSON with id, code, name, start_time, end_time)
+      batchRegister: `${API_BASE}/attendance/attendance/batch-register/`,      // POST
+      search: `${API_BASE}/attendance/attendance/search`,                      // GET
+      pending: `${API_BASE}/attendance/attendance/pending`,                    // GET ?manager_id=&from=&to=
+      batchDecide: `${API_BASE}/attendance/attendance/batch-decide/`,          // PUT
+    };
+
+    // Nếu BE endpoint khác, sửa ở đây cho khớp.
+
+    // =========================
+    // Utilities
+    // =========================
+    const $ = (sel, root=document) => root.querySelector(sel);
+    const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+    function fmtTime(t) { // "HH:MM:SS" -> "HH:MM"
+      if (!t) return "";
+      const [h,m] = t.split(":");
+      return `${h}:${m}`;
+    }
+
+    function showMsg(el, msg, ok=false){ el.textContent = msg; el.className = ok ? 'note oktxt' : 'note err'; }
+
+    function ymd(d){ return d.toISOString().slice(0,10); }
+    function addDays(d, n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+
+    function startOfNextWeekMonday(base=new Date()){
+      // Lấy thứ 2 tuần kế: (Mon=1..Sun=7)
+      const day = base.getDay() || 7; // Sun=0 -> 7
+      const monday = addDays(new Date(base.getFullYear(), base.getMonth(), base.getDate()), 8 - day);
+      monday.setHours(0,0,0,0);
+      return monday;
+    }
+
+    function parseJSON(res){ if(!res.ok) throw res; return res.json(); }
+
+    function sortByStartTime(templates){
+      return templates.slice().sort((a,b)=> (a.start_time||'').localeCompare(b.start_time||''));
+    }
+
+    function pillStatus(st){
+      const map = {
+        APPROVED: 'pill ok', PENDING: 'pill pending', CANCELED: 'pill bad', REJECTED: 'pill bad'
+      };
+      const cls = map[st]||'pill';
+      return `<span class="${cls}">${st}</span>`;
+    }
+
+    // =========================
+    // STATE
+    // =========================
+    let shiftTemplates = [];
+    let weekMonday = startOfNextWeekMonday();
+
+    // =========================
+    // Build week grid UI
+    // =========================
+    function dayNameVi(idx){
+      return ['Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7','Chủ nhật'][idx];
+    }
+
+    function renderWeekGrid(){
+      const grid = $('#weekGrid');
+      grid.innerHTML = '';
+      const weekDates = Array.from({length:7}, (_,i)=> addDays(weekMonday, i));
+      $('#weekLabel').textContent = `Tuần: ${ymd(weekDates[0])} → ${ymd(weekDates[6])}`;
+
+      for(let i=0;i<7;i++){
+        const d = weekDates[i];
+        const col = document.createElement('div');
+        col.className = 'day-col';
+        col.dataset.date = ymd(d);
+        col.innerHTML = `
+          <div class="day-head"><strong>${dayNameVi(i)}</strong><span class="muted">${ymd(d)}</span></div>
+          <div class="day-list"></div>
+        `;
+        grid.appendChild(col);
+
+        // rows
+        const list = col.querySelector('.day-list');
+        const rows = sortByStartTime(shiftTemplates).map(t=>{
+          const row = document.createElement('div');
+          row.className='row-item';
+          row.innerHTML = `
+            <input type="checkbox" class="pick" data-template="${t.id}" />
+            <span class="time">${fmtTime(t.start_time)}–${fmtTime(t.end_time)}</span>
+            <span class="code">${t.code||''}</span>
+            <span class="muted">${t.name||''}</span>
+          `;
+          return row;
+        });
+        rows.forEach(r=> list.appendChild(r));
+      }
+    }
+
+    async function loadShiftTemplates(){
+      const res = await fetch(ENDPOINTS.shiftTemplates);
+      const data = await parseJSON(res);
+      // Chấp nhận cả mảng thuần hoặc {results:[]}
+      shiftTemplates = Array.isArray(data) ? data : (data.results || []);
+    }
+
+    // =========================
+    // Register batch
+    // =========================
+    function collectBatchItems(){
+      const items = [];
+      $$('.day-col').forEach(col=>{
+        const date = col.dataset.date;
+        $$('.pick:checked', col).forEach(chk=>{
+          items.push({ date, shift_template: parseInt(chk.dataset.template,10) });
+        })
+      });
+      return items;
+    }
+
+    async function doBatchRegister(){
+      const empId = parseInt($('#empId').value||'',10);
+      if(!empId){ showMsg($('#empMsg'), 'Nhập Employee ID trước khi đăng ký'); return; }
+      const items = collectBatchItems();
+      if(items.length===0){ showMsg($('#empMsg'), 'Chưa chọn ca nào'); return; }
+
+      const payload = {
+        employee_id: empId,
+        default_source: parseInt($('#defaultSource').value,10)||0,
+        default_work_mode: parseInt($('#defaultWorkMode').value,10)||0,
+        default_bonus: $('#defaultBonus').value||'0.00',
+        items
+      };
+
+      $('#registerBtn').disabled = true;
+      showMsg($('#empMsg'), 'Đang gửi đăng ký…', true);
+      try{
+        const res = await fetch(ENDPOINTS.batchRegister, {
+          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if(res.status===201){
+          showMsg($('#empMsg'), `Thành công: tạo ${data.created?.length||0} bản ghi`, true);
+          // reset selections
+          $$('.pick:checked').forEach(c=> c.checked=false);
+          // refresh dashboard
+          loadDashboard();
+        } else {
+          const errs = (data.errors||[]).map(e=>`[#${e.index}] ${e.error}`).join('\n');
+          showMsg($('#empMsg'), `Không tạo bản ghi nào. Lỗi:\n${errs}`);
+        }
+      }catch(err){
+        showMsg($('#empMsg'), `Lỗi kết nối hoặc phản hồi không hợp lệ`);
+      } finally {
+        $('#registerBtn').disabled = false;
+      }
+    }
+
+    // =========================
+    // Dashboard (search all)
+    // =========================
+    async function loadDashboard(){
+      const from = $('#dashFrom').value; const to = $('#dashTo').value;
+      const mgr = $('#mgrIdForDash').value.trim();
+      const params = new URLSearchParams();
+      if(from) params.set('date_from', from);
+      if(to) params.set('date_to', to);
+      if(mgr) params.set('manager_id', mgr); // nếu không phải manager, BE yêu cầu employee_id; bảng này ưu tiên dùng cho manager
+      params.set('include_deleted', 'false');
+
+      const res = await fetch(`${ENDPOINTS.search}?${params.toString()}`);
+      const data = await parseJSON(res);
+      const rows = Array.isArray(data) ? data : (data.results || []);
+
+      // sort by date asc + template.start_time asc
+      rows.sort((a,b)=>{
+        const da = (a.date||''); const db=(b.date||'');
+        if(da!==db) return da.localeCompare(db);
+        const ta = a.template_start_time || a.shift_template?.start_time || '';
+        const tb = b.template_start_time || b.shift_template?.start_time || '';
+        return (ta||'').localeCompare(tb||'');
+      });
+
+      const tb = $('#dashTable tbody'); tb.innerHTML='';
+      for(const r of rows){
+        const st = r.status || r.status_display || '';
+        const code = r.template_code || r.shift_template?.code || '';
+        const name = r.template_name || r.shift_template?.name || '';
+        const s = r.template_start_time || r.shift_template?.start_time || '';
+        const e = r.template_end_time || r.shift_template?.end_time || '';
+        tb.insertAdjacentHTML('beforeend', `
+          <tr>
+            <td>${r.date||''}</td>
+            <td>${r.employee_id||''}</td>
+            <td>${code} <span class="muted">${name}</span></td>
+            <td class="time">${fmtTime(s)}–${fmtTime(e)}</td>
+            <td>${pillStatus(st)}</td>
+            <td>${r.source??''}</td>
+            <td>${r.work_mode??''}</td>
+            <td>${r.bonus??''}</td>
+            <td>${r.requested_by??''}</td>
+            <td>${r.approved_by??''}</td>
+          </tr>
+        `);
+      }
+    }
+
+    // =========================
+    // Manager: pending & approve
+    // =========================
+    async function loadPending(){
+      const mgr = parseInt($('#managerId').value||'',10);
+      if(!mgr){ alert('Nhập Manager ID'); return; }
+      const params = new URLSearchParams({ manager_id: String(mgr) });
+      if($('#pendingFrom').value) params.set('from', $('#pendingFrom').value);
+      if($('#pendingTo').value) params.set('to', $('#pendingTo').value);
+
+      const res = await fetch(`${ENDPOINTS.pending}?${params.toString()}`);
+      const data = await parseJSON(res);
+      const rows = Array.isArray(data) ? data : (data.results || []);
+
+      // sort by date + template start
+      rows.sort((a,b)=>{
+        const da=a.date||'', db=b.date||''; if(da!==db) return da.localeCompare(db);
+        const sa=a.shift_template?.start_time||'', sb=b.shift_template?.start_time||''; return sa.localeCompare(sb);
+      });
+
+      const tb = $('#pendingTable tbody'); tb.innerHTML='';
+      for(const r of rows){
+        const code = r.template_code || r.shift_template?.code || '';
+        const name = r.template_name || r.shift_template?.name || '';
+        const s = r.template_start_time || r.shift_template?.start_time || '';
+        const e = r.template_end_time || r.shift_template?.end_time || '';
+        tb.insertAdjacentHTML('beforeend', `
+          <tr>
+            <td><input type="checkbox" class="pickPending" data-id="${r.id}" /></td>
+            <td>${r.id}</td>
+            <td>${r.date||''}</td>
+            <td>${r.employee_id||''}</td>
+            <td>${code} <span class="muted">${name}</span></td>
+            <td class="time">${fmtTime(s)}–${fmtTime(e)}</td>
+            <td>${r.requested_by??''}</td>
+          </tr>
+        `);
+      }
+    }
+
+    async function loadApproved(){
+      const mgr = $('#managerId').value.trim();
+      const params = new URLSearchParams();
+      if(mgr) params.set('manager_id', mgr);
+      params.set('status', 1);
+      if($('#approvedFrom').value) params.set('date_from', $('#approvedFrom').value);
+      if($('#approvedTo').value) params.set('date_to', $('#approvedTo').value);
+
+      const res = await fetch(`${ENDPOINTS.search}?${params.toString()}`);
+      const data = await parseJSON(res);
+      const rows = Array.isArray(data) ? data : (data.results || []);
+
+      rows.sort((a,b)=>{
+        const da=a.date||'', db=b.date||''; if(da!==db) return da.localeCompare(db);
+        const sa=a.shift_template?.start_time||'', sb=b.shift_template?.start_time||''; return sa.localeCompare(sb);
+      });
+
+      const tb = $('#approvedTable tbody'); tb.innerHTML='';
+      for(const r of rows){
+        const code = r.template_code || r.shift_template?.code || '';
+        const name = r.template_name || r.shift_template?.name || '';
+        const s = r.template_start_time || r.shift_template?.start_time || '';
+        const e = r.template_end_time || r.shift_template?.end_time || '';
+        tb.insertAdjacentHTML('beforeend', `
+          <tr>
+            <td>${r.date||''}</td>
+            <td>${r.employee_id||''}</td>
+            <td>${code} <span class="muted">${name}</span></td>
+            <td class="time">${fmtTime(s)}–${fmtTime(e)}</td>
+            <td>${r.approved_by??''}</td>
+          </tr>
+        `);
+      }
+    }
+
+    async function approveOrRejectSelected(approve){
+      const mgr = parseInt($('#managerId').value||'',10);
+      if(!mgr){ alert('Nhập Manager ID'); return; }
+      const picks = $$('.pickPending:checked');
+      if(picks.length===0){ alert('Chưa chọn bản ghi'); return; }
+
+      const override = $('#overrideApprove').checked;
+      const reason = $('#rejectReason').value || '';
+
+      const items = picks.map(chk=> ({ id: parseInt(chk.dataset.id,10), approve, ...(approve?{override_overlap: override}:{reason}) }));
+
+      const payload = { manager_id: mgr, items };
+      const res = await fetch(ENDPOINTS.batchDecide, {
+        method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if((data.errors||[]).length===0){
+        alert(`${approve? 'Duyệt':'Từ chối'} thành công: ${data.updated?.length||0}`);
+      } else {
+        alert(`Có lỗi ở ${data.errors.length} bản ghi. Vui lòng kiểm tra.`);
+      }
+      loadPending();
+      loadApproved();
+      loadDashboard();
+    }
+
+    // =========================
+    // Tabs & Events
+    // =========================
+    $$('.tab').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        $$('.tab').forEach(t=> t.classList.remove('active'));
+        btn.classList.add('active');
+        const dest = btn.dataset.tab;
+        $$('.section').forEach(s=> s.classList.remove('active'));
+        $(`#tab-${dest}`).classList.add('active');
+      });
+    });
+
+    $('#prevWeek').addEventListener('click', ()=>{ weekMonday = addDays(weekMonday, -7); renderWeekGrid(); });
+    $('#nextWeek').addEventListener('click', ()=>{ weekMonday = addDays(weekMonday, 7); renderWeekGrid(); });
+    $('#registerBtn').addEventListener('click', doBatchRegister);
+    $('#clearSelection').addEventListener('click', ()=> $$('.pick:checked').forEach(c=> c.checked=false));
+    $('#refreshDash').addEventListener('click', loadDashboard);
+
+    $('#loadPending').addEventListener('click', loadPending);
+    $('#loadApproved').addEventListener('click', loadApproved);
+    $('#approveSelected').addEventListener('click', ()=> approveOrRejectSelected(true));
+    $('#rejectSelected').addEventListener('click', ()=> approveOrRejectSelected(false));
+    $('#toggleAllPending').addEventListener('change', (e)=>{
+      const on = e.target.checked; $$('.pickPending').forEach(x=> x.checked = on);
+    });
+
+    // =========================
+    // Boot
+    // =========================
+    (async function boot(){
+      try {
+        await loadShiftTemplates();
+        renderWeekGrid();
+      } catch (e) {
+        console.error(e);
+        $('#weekGrid').innerHTML = '<div class="note err">Không tải được Shift Templates. Kiểm tra ENDPOINTS.shiftTemplates.</div>';
+      }
+      // Prefill dashboard range: tuần hiện tại
+      const today = new Date();
+      const from = new Date(today.getFullYear(), today.getMonth(), today.getDate()-3);
+      const to = new Date(today.getFullYear(), today.getMonth(), today.getDate()+10);
+      $('#dashFrom').value = ymd(from);
+      $('#dashTo').value = ymd(to);
+      loadDashboard();
+    })();
+  </script>
+</body>
+</html>

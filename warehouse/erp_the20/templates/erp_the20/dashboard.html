@@ -1,75 +1,43 @@
-{% extends "erp_the20/base.html" %}
-{% block title %}Tổng quan hệ thống{% endblock %}
+{% extends 'erp_the20/base.html' %}
+{% block title %}THE20 — Dashboard{% endblock %}
 {% block content %}
-  <h4 class="mb-3">Tổng quan hệ thống</h4>
-  <p class="text-muted">Thống kê tổng quan về nhân sự và hoạt động hôm nay</p>
-
-  <div class="row g-3">
-    <div class="col-md-3">
-      <div class="card h-100"><div class="card-body text-center">
-        <div class="text-muted">Tổng nhân viên</div>
-        <div class="display-5 fw-bold" id="statTotalEmployees">0</div>
-      </div></div>
-    </div>
-    <div class="col-md-3">
-      <div class="card h-100"><div class="card-body text-center">
-        <div class="text-muted">Có mặt hôm nay</div>
-        <div class="display-5 fw-bold" id="statPresentToday">0</div>
-      </div></div>
-    </div>
-    <div class="col-md-3">
-      <div class="card h-100"><div class="card-body text-center">
-        <div class="text-muted">Ca đang hoạt động</div>
-        <div class="display-5 fw-bold" id="statActiveShifts">0</div>
-      </div></div>
-    </div>
-    <div class="col-md-3">
-      <div class="card h-100"><div class="card-body text-center">
-        <div class="text-muted">Đơn chờ duyệt</div>
-        <div class="display-5 fw-bold" id="statPending">0</div>
-      </div></div>
-    </div>
-  </div>
-
-  <div class="row g-3 mt-2">
-    <div class="col-lg-6">
-      <div class="card h-100">
-        <div class="card-header">Hoạt động gần đây</div>
-        <ul class="list-group list-group-flush" id="recentActivities"></ul>
-      </div>
-    </div>
-    <div class="col-lg-6">
-      <div class="card h-100">
-        <div class="card-header">Thống kê theo phòng ban</div>
-        <div class="card-body">
-          <div id="deptStats"></div>
+  <h1 class="text-2xl font-bold mb-6">Dashboard</h1>
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+    <a href="{% url 'erp_the20:shift_templates' %}" class="card hover:shadow-lg transition-all">
+      <div class="flex items-center gap-4">
+        <svg class="w-8 h-8 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+        <div>
+          <h2 class="text-lg font-semibold">Shift Templates</h2>
+          <p class="text-sm text-gray-600 dark:text-gray-300">Tạo, sửa, xóa mẫu ca làm việc</p>
         </div>
       </div>
-    </div>
+    </a>
+    <a href="{% url 'erp_the20:shift_instances' %}" class="card hover:shadow-lg transition-all">
+      <div class="flex items-center gap-4">
+        <svg class="w-8 h-8 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+        <div>
+          <h2 class="text-lg font-semibold">Shift Instances</h2>
+          <p class="text-sm text-gray-600 dark:text-gray-300">Quản lý ca theo ngày và hệ số lương</p>
+        </div>
+      </div>
+    </a>
+    <a href="{% url 'erp_the20:attendance_v2' %}" class="card hover:shadow-lg transition-all">
+      <div class="flex items-center gap-4">
+        <svg class="w-8 h-8 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+        <div>
+          <h2 class="text-lg font-semibold">Attendance</h2>
+          <p class="text-sm text-gray-600 dark:text-gray-300">Đăng ký và duyệt ca làm việc</p>
+        </div>
+      </div>
+    </a>
+    <a href="{% url 'erp_the20:leave' %}" class="card hover:shadow-lg transition-all">
+      <div class="flex items-center gap-4">
+        <svg class="w-8 h-8 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a2 2 0 00-2-2h-3m-3 4H4a2 2 0 01-2-2V5a2 2 0 012-2h7m6 0v6m-6-6h6" /></svg>
+        <div>
+          <h2 class="text-lg font-semibold">Leave</h2>
+          <p class="text-sm text-gray-600 dark:text-gray-300">Quản lý đơn xin nghỉ</p>
+        </div>
+      </div>
+    </a>
   </div>
-{% endblock %}
-{% block scripts %}
-<script>
-(async function loadDashboard(){
-  try{
-    const data = await api("/dashboard/");
-    document.getElementById("statTotalEmployees").textContent = data.total_employees ?? 0;
-    document.getElementById("statPresentToday").textContent = data.present_today ?? 0;
-    document.getElementById("statActiveShifts").textContent = data.active_shifts ?? 0;
-    document.getElementById("statPending").textContent = data.pending_requests ?? 0;
-
-    const ul = document.getElementById("recentActivities");
-    ul.innerHTML = (data.recent || []).map(x => `<li class="list-group-item">${x}</li>`).join("");
-
-    const wrap = document.getElementById("deptStats");
-    wrap.innerHTML = (data.departments || []).map(d => {
-      const pct = d.total ? Math.round((d.present/d.total)*100) : 0;
-      return `<div class="mb-2">
-        <div class="d-flex justify-content-between"><strong>${d.name}</strong><span>${d.present}/${d.total} (${pct}%)</span></div>
-        <div class="progress"><div class="progress-bar" role="progressbar" style="width:${pct}%"></div></div>
-      </div>`;
-    }).join("");
-  }catch(e){ toast(e.message,"error"); }
-})();
-</script>
 {% endblock %}

@@ -1,59 +1,168 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="vi" class="dark">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{% block title %}ERP Nhân sự{% endblock %}</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <title>{% block title %}THE20 — Console{% endblock %}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            bg-main: '#d1fae5',         // Nền xanh nhạt
+            bg-dark: '#064e3b',         // Nền tối xanh đậm
+            input-bg: '#ffffff',        // Ô text trắng
+            btn-bg: '#047857',          // Button xanh đậm
+            text-dark: '#1f2937',       // Văn bản tối
+            text-light: '#f9fafb',      // Văn bản sáng
+            success: '#059669',
+            danger: '#dc2626',
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
   <style>
-    .badge-status{font-size:.75rem}
-    .table thead th{white-space:nowrap}
+    body { @apply bg-bg-main text-text-dark min-h-screen font-sans; }
+    .dark body { @apply bg-bg-dark text-text-light; }
+    .card { @apply bg-input-bg dark:bg-bg-dark rounded-xl shadow-md p-6 transition-all; }
+    .btn { @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-btn-bg text-white shadow-md hover:bg-green-800 transition-colors; }
+    .input { @apply w-full rounded-lg bg-input-bg px-3 py-2 text-text-dark shadow-md outline-none focus:shadow-lg; }
+    .select { @apply w-full rounded-lg bg-input-bg px-3 py-2 text-text-dark shadow-md outline-none focus:shadow-lg; }
+    .table { @apply min-w-full divide-y divide-gray-200 dark:divide-gray-700; }
+    .table th { @apply bg-gray-100 dark:bg-gray-800 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider px-4 py-3 sticky top-0; }
+    .table td { @apply px-4 py-3 text-sm hover:bg-gray-100 dark:hover:bg-gray-700; }
+    .link { @apply text-green-700 dark:text-green-300 underline underline-offset-4 hover:no-underline; }
+    #toast { @apply fixed right-4 bottom-4 z-50 space-y-2; }
+    .toast { @apply card max-w-sm; }
+    .toast-error { @apply bg-red-50 dark:bg-red-900/50 text-red-700 dark:text-red-100; }
+    .toast-success { @apply bg-green-50 dark:bg-green-900/50 text-green-700 dark:text-green-100; }
+    @keyframes slide-in { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
   </style>
   {% block head %}{% endblock %}
 </head>
-<body class="bg-light">
-  {% include "erp_the20/includes/navbar.html" %}
-  <main class="container-fluid py-4">
-    {% block content %}{% endblock %}
-  </main>
+<body>
+  <div class="flex">
+    <!-- Sidebar -->
+    <aside class="w-64 bg-input-bg dark:bg-bg-dark shadow-md fixed h-full transition-all md:block hidden" id="sidebar">
+      <div class="p-4">
+        <a href="{% url 'erp_the20:dashboard' %}" class="text-xl font-bold text-green-700 dark:text-green-300 pb-2">THE20</a>
+        <nav class="mt-6 space-y-1">
+          <a href="{% url 'erp_the20:dashboard' %}" class="block px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
+            Dashboard
+          </a>
+          <a href="{% url 'erp_the20:shift_templates' %}" class="block px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            Shift Templates
+          </a>
+          <a href="{% url 'erp_the20:shift_instances' %}" class="block px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+            Shift Instances
+          </a>
+          <a href="{% url 'erp_the20:attendance_v2' %}" class="block px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+            Attendance
+          </a>
+          <a href="{% url 'erp_the20:leave' %}" class="block px-4 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a2 2 0 00-2-2h-3m-3 4H4a2 2 0 01-2-2V5a2 2 0 012-2h7m6 0v6m-6-6h6" /></svg>
+            Leave
+          </a>
+        </nav>
+        <button id="toggleDark" class="mt-4 px-4 py-2 text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2 bg-btn-bg text-white shadow-md hover:bg-green-800">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
+          Toggle Dark Mode
+        </button>
+      </div>
+    </aside>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Mobile menu toggle -->
+    <button class="md:hidden fixed top-4 left-4 z-50 p-2 bg-btn-bg text-white rounded-lg shadow-md" id="toggleSidebar">
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+    </button>
+
+    <!-- Main content -->
+    <main class="flex-1 p-6 ml-0 md:ml-64 transition-all">
+      <div class="max-w-7xl mx-auto">
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+
+    <!-- Toast container -->
+    <div id="toast"></div>
+  </div>
+
   <script>
-    window.API_BASE = window.API_BASE || "/the20"; // chỉnh theo backend của bạn
+    // CSRF helper
     function getCookie(name) {
-      let cookieValue = null;
-      if (document.cookie && document.cookie !== "") {
-        const cookies = document.cookie.split(";");
-        for (let i = 0; i < cookies.length; i++) {
-          const cookie = cookies[i].trim();
-          if (cookie.substring(0, name.length + 1) === (name + "=")) {
-            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-            break;
-          }
-        }
-      }
-      return cookieValue;
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop().split(';').shift();
     }
-    const CSRF_TOKEN = getCookie("csrftoken");
-    async function api(path, options={}){
-      const url = (window.API_BASE.replace(/\/$/,"")) + path;
-      const headers = Object.assign({ "Accept":"application/json" }, options.headers || {});
-      if (options.method && options.method.toUpperCase() !== "GET"){
-        headers["Content-Type"] = headers["Content-Type"] || "application/json";
-        headers["X-CSRFToken"] = CSRF_TOKEN || headers["X-CSRFToken"];
-      }
-      const resp = await fetch(url, Object.assign({}, options, {headers}));
-      if (!resp.ok){
-        let detail = "";
-        try { detail = await resp.text(); } catch(e){}
-        throw new Error(resp.status + " " + resp.statusText + (detail? " — " + detail: ""));
-      }
-      const ct = resp.headers.get("content-type") || "";
-      if (ct.includes("application/json")) return await resp.json();
-      return await resp.text();
+    const CSRF = getCookie('csrftoken');
+
+    // Toast notification
+    function toast(msg, type = 'info') {
+      const box = document.getElementById('toast');
+      const el = document.createElement('div');
+      el.className = `toast ${type === 'error' ? 'toast-error' : 'toast-success'} animate-slide-in`;
+      el.innerHTML = `
+        <div class="flex items-center gap-3">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${type === 'error' ? 'M6 18L18 6M6 6l12 12' : 'M5 13l4 4L19 7'}" />
+          </svg>
+          <div class="text-sm">${msg}</div>
+          <button class="ml-auto text-xs bg-btn-bg text-white shadow-md hover:bg-green-800" onclick="this.parentElement.parentElement.remove()">×</button>
+        </div>`;
+      box.appendChild(el);
+      setTimeout(() => el.remove(), 5000);
     }
-    function toast(msg, type="info"){ console.log(type.toUpperCase()+":", msg); }
+
+    // Fetch wrapper
+    async function apiFetch(url, opts = {}) {
+      const base = opts.base || '';
+      const finalUrl = base ? (base + url) : url;
+      const headers = Object.assign({
+        'Accept': 'application/json',
+      }, opts.headers || {});
+      let body = opts.body;
+      if (opts.json) {
+        headers['Content-Type'] = 'application/json';
+        body = JSON.stringify(opts.json);
+      }
+      const method = (opts.method || 'GET').toUpperCase();
+      if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+        headers['X-CSRFToken'] = CSRF || headers['X-CSRFToken'];
+        headers['X-Requested-With'] = 'XMLHttpRequest';
+        opts.credentials = opts.credentials || 'same-origin';
+      }
+      const res = await fetch(finalUrl, { ...opts, headers, body });
+      if (!res.ok) {
+        let detail = 'HTTP ' + res.status;
+        try { const j = await res.json(); detail = j.detail || JSON.stringify(j); } catch (e) {}
+        throw new Error(detail);
+      }
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('application/json')) return res.json();
+      return res.text();
+    }
+
+    // Sidebar toggle for mobile
+    document.getElementById('toggleSidebar').addEventListener('click', () => {
+      const sidebar = document.getElementById('sidebar');
+      sidebar.classList.toggle('hidden');
+    });
+
+    // Dark mode toggle
+    document.getElementById('toggleDark').addEventListener('click', () => {
+      document.documentElement.classList.toggle('dark');
+    });
   </script>
   {% block scripts %}{% endblock %}
 </body>

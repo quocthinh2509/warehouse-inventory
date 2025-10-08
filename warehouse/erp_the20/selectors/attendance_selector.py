@@ -1,221 +1,204 @@
-from erp_the20.models import AttendanceEvent, AttendanceSummary, ShiftInstance, AttendanceSummaryV2
-from typing import Optional, Iterable
-from datetime import date
-from django.db.models import QuerySet
-from typing import Tuple
-# from erp_the20.selectors.shift_selector import get_shift_instance_by_date_and_employee
+# -*- coding: utf-8 -*-
+from __future__ import annotations
+from typing import Any, Dict, List, Optional
+from datetime import datetime, date
+from decimal import Decimal
 
-from django.db.models import OuterRef, Exists, Min
-
+from django.db.models import Q, QuerySet
 from django.utils import timezone
-from django.db.models import OuterRef, Exists, Subquery, Min, F
-from datetime import date, datetime, time, timedelta
-from django.db import connections
 
-from erp_the20.selectors.shift_selector import list_today_shift_instances
-# =========================
-# ATTENDANCE EVENT & SUMMARY
-# =========================
+from erp_the20.models import Attendance
 
-def get_last_event(employee_id: int):
-    """
-    Trả về AttendanceEvent mới nhất của nhân viên theo ts giảm dần.
-    """
-    return AttendanceEvent.objects.filter(employee_id=employee_id).order_by("-ts").first()
+# ==== helpers ====
+def _as_list(v: Any) -> List[str]:
+    if v is None:
+        return []
+    if isinstance(v, (list, tuple, set)):
+        out: List[str] = []
+        for x in v:
+            if x is None: 
+                continue
+            s = str(x).strip()
+            if s:
+                out.extend([t for t in s.split(",") if t != ""])
+        return out
+    s = str(v).strip()
+    if not s:
+        return []
+    return [t for t in s.split(",") if t != ""]
 
+def _to_bool(v: Any) -> Optional[bool]:
+    if v is None:
+        return None
+    s = str(v).strip().lower()
+    if s in ("1","true","t","yes","y"):
+        return True
+    if s in ("0","false","f","no","n"):
+        return False
+    return None
 
-def get_summary(employee_id: int, date: date):
-    """
-    Trả về AttendanceSummary của nhân viên cho ngày cụ thể.
-    """
-    return AttendanceSummary.objects.filter(employee_id=employee_id, date=date).first()
+def _to_date(v: Any) -> Optional[date]:
+    if not v:
+        return None
+    if isinstance(v, date) and not isinstance(v, datetime):
+        return v
+    try:
+        return datetime.fromisoformat(str(v)[:10]).date()
+    except Exception:
+        return None
 
+def _to_datetime(v: Any) -> Optional[datetime]:
+    if not v:
+        return None
+    if isinstance(v, datetime):
+        return v if timezone.is_aware(v) else timezone.make_aware(v, timezone.get_current_timezone())
+    try:
+        dt = datetime.fromisoformat(str(v))
+        return dt if timezone.is_aware(dt) else timezone.make_aware(dt, timezone.get_current_timezone())
+    except Exception:
+        pass
+    d = _to_date(v)
+    if d:
+        return timezone.make_aware(datetime(d.year, d.month, d.day, 0, 0, 0), timezone.get_current_timezone())
+    return None
 
-def list_summaries(employee_id: int):
-    """
-    Trả về danh sách AttendanceSummary của nhân viên, sắp xếp theo ngày giảm dần.
-    """
-    return AttendanceSummary.objects.filter(employee_id=employee_id).order_by("-date")
+def _to_decimal(v: Any) -> Optional[Decimal]:
+    try:
+        return Decimal(str(v))
+    except Exception:
+        return None
 
-
-def list_all_summaries():
-    """
-    Trả về tất cả AttendanceSummary trên hệ thống, theo ngày giảm dần.
-    """
-    return AttendanceSummary.objects.all().order_by("-date")
-
-
-def list_summaries_by_date(date: date):
-    """
-    Trả về danh sách AttendanceSummary của tất cả nhân viên cho một ngày.
-    (Không còn order_by theo tên vì không có model Employee, chỉ sort theo employee_id)
-    """
-    return AttendanceSummary.objects.filter(date=date).order_by("employee_id")
-
-
-def get_list_event_by_date(employee_id: int, date: date):
-    """
-    Trả về danh sách AttendanceEvent của nhân viên theo ngày cụ thể, sắp xếp theo thời gian tăng dần.
-    """
-    return AttendanceEvent.objects.filter(employee_id=employee_id, ts__date=date).order_by("ts")
-
-
-def list_attendance_events(
-    employee_ids: Optional[Iterable[int]] = None,
-    start: Optional[date] = None,
-    end: Optional[date] = None,
-) -> QuerySet[AttendanceEvent]:
-    """
-    Trả về danh sách AttendanceEvent đã lọc.
-    """
-    qs = AttendanceEvent.objects.select_related("shift_instance", "shift_instance__template").order_by("-ts")
-
-    if employee_ids:
-        qs = qs.filter(employee_id__in=employee_ids)
-    if start:
-        qs = qs.filter(ts__date__gte=start)
-    if end:
-        qs = qs.filter(ts__date__lte=end)
-    return qs
-
-
-def count_currently_clocked_in() -> int: # cái này giữ nguyên
-    """
-    Đếm số nhân viên đang trong ca (check-in gần nhất là 'in', chưa có check-out sau đó).
-    """
-    # Lấy event mới nhất của mỗi nhân viên
-    last_event = (
-        AttendanceEvent.objects
-        .filter(employee_id=OuterRef("employee_id"))
-        .order_by("-ts")
-    )
-
-    currently_in = (
-        AttendanceEvent.objects
-        .filter(id=Subquery(last_event.values("id")[:1]))
-        .filter(event_type="in")
-        .values("employee_id")
-        .distinct()
-        .count()
-    )
-    return currently_in
-
-
-def count_late_and_ontime(today: date = None) -> Tuple[int, int]:
-    """
-    Đếm số nhân viên đi trễ và đúng giờ trong ngày.
-    Trả về (late_count, ontime_count).
-    """
-    if today is None:
-        today = timezone.localdate()
-
-    late_count = 0
-    ontime_count = 0
-
-    # Lấy các sự kiện check-in trong ngày có gắn shift_instance
-    events = (
-        AttendanceEvent.objects
-        .select_related("shift_instance", "shift_instance__template")
-        .filter(
-            event_type="in",
-            ts__date=today,
-            shift_instance__date=today
-        )
-        .order_by("ts")
-    )
-
-    # Lấy lần checkin đầu tiên của từng nhân viên
-    employee_first_checkin = {}
-    for ev in events:
-        if ev.employee_id not in employee_first_checkin:
-            employee_first_checkin[ev.employee_id] = ev
-
-    for ev in employee_first_checkin.values():
-        shift = ev.shift_instance
-        if not shift or not shift.template:
-            continue
-
-    # Nếu shift chưa có start_time thì bỏ qua
-        if not shift.template.start_time:
-            continue
-
-        shift_start = datetime.combine(today, shift.template.start_time)
-        shift_start = timezone.make_aware(shift_start, timezone.get_current_timezone())
-
-        if ev.ts > shift_start:
-            late_count += 1
-        else:
-            ontime_count += 1
-
-
-    return late_count, ontime_count
-
-def list_attendance_full(
-    employee_ids: Optional[Iterable[int]] = None,
-    username: Optional[str] = None,
-    start: Optional[date] = None,
-    end: Optional[date] = None,
-    event_type: Optional[str] = None,
-):
-    """
-    Trả về AttendanceEvent objects (RawQuerySet) nhưng có thêm thông tin từ User, ShiftInstance và ShiftTemplate.
-    """
-    sql = """
-        SELECT
-            eta.*,                                -- toàn bộ AttendanceEvent
-            u."UserName" AS username,
-            u.email AS email,
-            si.date AS shift_date,
-            si.status AS shift_status,
-            st.code AS template_code,
-            st.name AS template_name,
-            st.start_time AS template_start,
-            st.end_time AS template_end,
-            st.break_minutes,
-            st.overnight
-        FROM erp_the20_attendanceevent eta
-        JOIN "user" u ON eta.employee_id = u.id
-        LEFT JOIN erp_the20_shiftinstance si ON eta.shift_instance_id = si.id
-        LEFT JOIN erp_the20_shifttemplate st ON si.template_id = st.id
-        WHERE 1=1
-    """
-    params = []
-
-    if employee_ids:
-        placeholders = ",".join(["%s"] * len(employee_ids))
-        sql += f" AND eta.employee_id IN ({placeholders})"
-        params.extend(employee_ids)
-
-    if username:
-        sql += ' AND u."UserName" = %s'
-        params.append(username)
-
-    if start:
-        sql += " AND eta.ts::date >= %s"
-        params.append(start)
-    if end:
-        sql += " AND eta.ts::date <= %s"
-        params.append(end)
-
-    if event_type:
-        sql += " AND eta.event_type = %s"
-        params.append(event_type)
-
-    sql += " ORDER BY eta.ts DESC"
-
-    return AttendanceEvent.objects.raw(sql, params)
-
-
-def get_last_attendance_event_by_date(employee_id: int, day: date) -> Optional[AttendanceEvent]:
-    """
-    Trả về AttendanceEvent cuối cùng (ts lớn nhất) trong NGÀY `day` của employee_id.
-    Mặc định lọc is_valid=True và tính ngày theo timezone hiện tại của Django.
-    """
+# ==== quick lists ====
+def list_my_pending(employee_id: int) -> QuerySet[Attendance]:
     return (
-        AttendanceEvent.objects
-        .filter(employee_id=employee_id,ts__date = day)
-        .order_by("-ts")
-        .first()
+        Attendance.objects
+        .filter(deleted_at__isnull=True, employee_id=employee_id, status=Attendance.Status.PENDING)
+        .select_related("shift_template")
+        .order_by("date", "shift_template_id")
     )
 
+def list_pending_for_manager(date_from: Optional[str] = None, date_to: Optional[str] = None) -> QuerySet[Attendance]:
+    qs = Attendance.objects.filter(deleted_at__isnull=True, status=Attendance.Status.PENDING)
+    if date_from:
+        qs = qs.filter(date__gte=date_from)
+    if date_to:
+        qs = qs.filter(date__lte=date_to)
+    return qs.select_related("shift_template").order_by("date", "employee_id")
 
+def get_by_id(attendance_id: int) -> Attendance:
+    return Attendance.objects.select_related("shift_template").get(id=attendance_id)
+
+def get_or_none(attendance_id: int) -> Optional[Attendance]:
+    return Attendance.objects.filter(id=attendance_id).select_related("shift_template").first()
+
+# ==== powerful filter ====
+def filter_attendances(filters: Dict[str, Any], include_deleted: bool = False,
+                       order_by: Optional[List[str]] = None) -> QuerySet[Attendance]:
+    """
+    Hỗ trợ:
+      - employee_id, status, work_mode, source (IN / equals)
+      - khoảng ngày/giờ: date/ts_in/ts_out
+      - template_code, template_name_icontains
+      - bonus_min/max
+      - q: tìm trên code/name template & reject_reason
+    """
+    base = Attendance.objects.select_related("shift_template")
+    if not include_deleted:
+        base = base.filter(deleted_at__isnull=True)
+
+    # equals / IN
+    employee_ids = _as_list(filters.get("employee_id"))
+    if employee_ids:
+        base = base.filter(employee_id__in=[int(x) for x in employee_ids if str(x).isdigit()])
+
+    statuses = _as_list(filters.get("status"))
+    if statuses:
+        # nhận CSV "0,1" hoặc label "pending,approved"
+        ints: List[int] = []
+        for s in statuses:
+            if str(s).isdigit():
+                ints.append(int(s))
+            else:
+                mapping = {lbl: val for val, lbl in Attendance.Status.choices}
+                rev = {lbl.lower(): val for val, lbl in mapping.items()}
+                if s.lower() in rev:
+                    ints.append(rev[s.lower()])
+        if ints:
+            base = base.filter(status__in=ints)
+
+    work_modes = _as_list(filters.get("work_mode"))
+    if work_modes:
+        ints = [int(x) for x in work_modes if str(x).isdigit()]
+        base = base.filter(work_mode__in=ints)
+
+    sources = _as_list(filters.get("source"))
+    if sources:
+        ints = [int(x) for x in sources if str(x).isdigit()]
+        base = base.filter(source__in=ints)
+
+    template_codes = _as_list(filters.get("template_code"))
+    if template_codes:
+        base = base.filter(shift_template__code__in=template_codes)
+
+    approved_bys = _as_list(filters.get("approved_by"))
+    if approved_bys:
+        base = base.filter(approved_by__in=[int(x) for x in approved_bys if str(x).isdigit()])
+
+    requested_bys = _as_list(filters.get("requested_by"))
+    if requested_bys:
+        base = base.filter(requested_by__in=[int(x) for x in requested_bys if str(x).isdigit()])
+
+    # booleans
+    is_valid = _to_bool(filters.get("is_valid"))
+    if is_valid is not None:
+        base = base.filter(is_valid=is_valid)
+
+    # dates / datetimes
+    d_from = _to_date(filters.get("date_from") or filters.get("shift_date_from"))
+    if d_from:
+        base = base.filter(date__gte=d_from)
+    d_to = _to_date(filters.get("date_to") or filters.get("shift_date_to"))
+    if d_to:
+        base = base.filter(date__lte=d_to)
+
+    ti_from = _to_datetime(filters.get("ts_in_from"))
+    if ti_from:
+        base = base.filter(ts_in__gte=ti_from)
+    ti_to = _to_datetime(filters.get("ts_in_to"))
+    if ti_to:
+        base = base.filter(ts_in__lte=ti_to)
+
+    to_from = _to_datetime(filters.get("ts_out_from"))
+    if to_from:
+        base = base.filter(ts_out__gte=to_from)
+    to_to = _to_datetime(filters.get("ts_out_to"))
+    if to_to:
+        base = base.filter(ts_out__lte=to_to)
+
+    # numeric range
+    bmin = _to_decimal(filters.get("bonus_min"))
+    if bmin is not None:
+        base = base.filter(bonus__gte=bmin)
+    bmax = _to_decimal(filters.get("bonus_max"))
+    if bmax is not None:
+        base = base.filter(bonus__lte=bmax)
+
+    # text search
+    name_icontains = filters.get("template_name_icontains") or filters.get("template_name")
+    if name_icontains:
+        base = base.filter(shift_template__name__icontains=str(name_icontains).strip())
+
+    q_text = (filters.get("q") or "").strip()
+    if q_text:
+        base = base.filter(
+            Q(shift_template__name__icontains=q_text) |
+            Q(shift_template__code__icontains=q_text) |
+            Q(reject_reason__icontains=q_text)
+        )
+
+    # order
+    if order_by:
+        base = base.order_by(*order_by)
+    else:
+        base = base.order_by("-date", "employee_id")
+    return base

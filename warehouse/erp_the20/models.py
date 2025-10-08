@@ -1,131 +1,145 @@
-
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
-from decimal import Decimal
 from django.utils import timezone
-from django.conf import settings
-from django.contrib.postgres.fields import ArrayField
-from django.db.models import Q, CheckConstraint  
+from django.db.models import Q, CheckConstraint, UniqueConstraint
+from decimal import Decimal
 
 
-# ===== Base =====
+# =========================
+# Base
+# =========================
 class TimeStampedModel(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Soft delete: set thời điểm xóa; query active: filter(deleted_at__isnull=True)
+    deleted_at = models.DateTimeField(null=True, blank=True, default=None, db_index=True)
+
     class Meta:
         abstract = True
 
 
-# ===== Core Master =====
+# =========================
+# Core Master
+# =========================
 class Department(TimeStampedModel):
-    code = models.CharField(max_length=16, unique=True)
+    code = models.CharField(max_length=16)
     name = models.CharField(max_length=120)
+
     class Meta:
         ordering = ["name"]
+        db_table = "Department"
+        constraints = [
+            UniqueConstraint(fields=["code"], condition=Q(deleted_at__isnull=True), name="uniq_active_department_code")
+        ]
 
-    def __str__(self): return self.name
+    def __str__(self):
+        return self.name
 
 
 class Position(TimeStampedModel):
     code = models.CharField(max_length=16, unique=True)
     name = models.CharField(max_length=120)
-    department = models.ForeignKey(Department, on_delete=models.SET_NULL,null=True,blank=True) 
+    department = models.ForeignKey(Department, on_delete=models.SET_NULL, null=True, blank=True)
+
     class Meta:
         ordering = ["name"]
+        db_table = "Position"
+        indexes = [
+            models.Index(fields=["code"]),
+            models.Index(fields=["name"]),
+        ]
+        constraints = [
+            UniqueConstraint(fields=["code"], condition=Q(deleted_at__isnull=True), name="uniq_active_position_code")
+        ]
 
-    def __str__(self): return self.name
+    def __str__(self):
+        return self.name
 
 
-# ===== Shifts & Scheduling ===== mẫu ca làm
-class ShiftTemplate(TimeStampedModel):   
-    code = models.CharField(max_length=16, unique=True) 
-    name = models.CharField(max_length=120) 
-    start_time = models.TimeField() 
-    end_time = models.TimeField() 
-    break_minutes = models.IntegerField(default=0) 
-    overnight = models.BooleanField(default=False) 
+# =========================
+# Shifts & Scheduling (mẫu ca làm)
+# =========================
+class ShiftTemplate(TimeStampedModel):
+    code = models.CharField(max_length=16)
+    name = models.CharField(max_length=120)
+    start_time = models.TimeField() # thời gian bắt đầu ca
+    end_time = models.TimeField() # thời gian kết thúc ca
+    break_minutes = models.IntegerField(default=0) # phút nghỉ giữa ca
+    overnight = models.BooleanField(default=False) # ca qua đêm (kết thúc ngày hôm sau)
+    pay_factor = models.DecimalField(
+        max_digits=5, decimal_places=2,
+        default=Decimal("1.00"),
+        validators=[MinValueValidator(Decimal("0.00")), MaxValueValidator(Decimal("5.00"))],
+        help_text="Hệ số cho ca (ví dụ: ca đêm 1.5)"
+    )
 
     class Meta:
         ordering = ["code"]
+        db_table = "ShiftTemplate"
+        indexes = [
+            models.Index(fields=["code"]),
+        ]
+        constraints = [
+            UniqueConstraint(
+                fields=["code"],
+                condition=Q(deleted_at__isnull=True),
+                name="uniq_active_shifttemplate_code",
+            ),
+        ]
 
-    def __str__(self): return f"{self.code} - {self.name}"
-
-
-class ShiftInstance(TimeStampedModel):  # ca làm việc cụ thể theo ngày
-    SHIFT_STATUS = [ 
-        ("planned", "Planned"),
-        ("active", "Active"),
-        ("completed", "Completed"),
-        ("cancelled", "Cancelled"),
-    ]
-    template = models.ForeignKey(ShiftTemplate, on_delete=models.PROTECT) 
-    date = models.DateField()
-    status = models.CharField(choices=SHIFT_STATUS, max_length=16, default="planned") 
-    # có thể để hệ số ở chổ này ( theo từng ngày nhưng default là 1, những ngày lễ có thể gắn là 2 hoặc 1,5 )
-
-    class Meta:
-        unique_together = [("template", "date")]
-        ordering = ["-date", "template_id"]
+    def __str__(self):
+        return f"{self.code} - {self.name}"
 
 
-# ===== Attendance =====
-class AttendanceEvent(TimeStampedModel): # một ca làm ( thực tế )
-    SOURCE_CHOICES = [
-        ("web", "Web"),
-        ("mobile", "Mobile"),
-        ("lark", "Lark"),
-        ("googleforms", "Google Forms"),
-    ]
-    EVENT_TYPES = (("in", "in"), ("out", "out"))
-
-    employee_id = models.IntegerField(null=True, blank=True)# thay vì FK Employee
-    shift_instance = models.ForeignKey(ShiftInstance, null=True, blank=True, on_delete=models.SET_NULL) 
-    event_type = models.CharField(max_length=16, choices=EVENT_TYPES) 
-    ts = models.DateTimeField() 
-    source = models.CharField(max_length=16,choices = SOURCE_CHOICES, default="web")  
-    is_valid = models.BooleanField(default=True) 
-    raw_payload = models.JSONField(null=True, blank=True) 
-   
-    class Meta:
-        ordering = ["-ts"]
-
-# models.py (đoạn LeaveRequest tối giản)
+# =========================
+# Leave / Requests
+# =========================
 class LeaveRequest(TimeStampedModel):
     """
-    Đơn nghỉ phép tối giản:
-    - Người gửi đơn chính là employee_id
-    - Mọi quyết định (approved/rejected/cancelled) dùng 1 field decided_by
+    Đơn nghỉ / thay đổi liên quan đến thời gian làm việc.
+    Người nộp đơn chính là employee_id. Mọi quyết định dùng chung decided_by.
+    Dùng IntegerChoices để lưu int trong DB.
     """
-    LEAVE_REQUEST_STATUS = [
-        ("submitted", "Submitted"),
-        ("approved", "Approved"),
-        ("rejected", "Rejected"),
-        ("cancelled", "Cancelled"),
-    ]
-    paid = models.BooleanField(default=False) # chổ này để tính xem là có trả tiền hay không.
+    class Status(models.IntegerChoices):
+        SUBMITTED = 0, "Submitted"
+        APPROVED = 1, "Approved"
+        REJECTED = 2, "Rejected"
+        CANCELLED = 3, "Cancelled"
 
-    employee_id = models.IntegerField(null=True, blank=True)
+    class LeaveType(models.IntegerChoices):
+        ANNUAL = 0, "Nghỉ phép năm"
+        UNPAID = 1, "Nghỉ không phép"
+        SICK = 2, "Nghỉ ốm"
+        PAID_SPECIAL = 3, "Nghỉ chế độ hưởng nguyên lương (kết hôn, tang lễ, v.v.)"
+        OVERTIME = 4, "Tăng ca"
+        ONLINE = 5, "Làm online"
+        SHIFT_CHANGE = 6, "Đổi ca làm"
+        LATE_IN = 7, "Đi làm muộn"
+        EARLY_OUT = 8, "Về sớm"
 
-    # Ngày bắt đầu và kết thúc nghỉ (theo ngày)
+    paid = models.BooleanField(default=False, help_text="Đơn này có được tính lương hay không.")
+    employee_id = models.IntegerField(null=True, blank=True, db_index=True)
+
+    # Nếu xin theo ngày
     start_date = models.DateField()
-    end_date   = models.DateField()
+    end_date = models.DateField()
 
-    # Nếu xin theo giờ (optional). Nếu dùng theo ngày thì để trống.
-    hours  = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    # Nếu xin theo giờ (tùy chọn, để trống nếu dùng theo ngày)
+    hours = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+
+    leave_type = models.IntegerField(choices=LeaveType.choices)
     reason = models.TextField(blank=True)
 
-    status = models.CharField(max_length=16, choices=LEAVE_REQUEST_STATUS, default="submitted")
-
-    # Thời điểm có quyết định (duyệt/từ chối/huỷ)
+    status = models.IntegerField(choices=Status.choices, default=Status.SUBMITTED)
     decision_ts = models.DateTimeField(null=True, blank=True)
-
-    # Người ra quyết định (approve/reject/cancel)
     decided_by = models.IntegerField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
+        db_table = "LeaveRequest"
         indexes = [
             models.Index(fields=["employee_id", "start_date", "end_date", "status"]),
+            models.Index(fields=["leave_type"]),
         ]
         constraints = [
             CheckConstraint(
@@ -135,154 +149,60 @@ class LeaveRequest(TimeStampedModel):
         ]
 
     def __str__(self):
-        return f"LV {self.employee_id} {self.leave_type} {self.start_date}→{self.end_date} [{self.status}]"
-
-class AttendanceSummary(TimeStampedModel):
-    ATTENDANCE_STATUS = [
-        ("present", "Present"),
-        ("absent", "Absent"),
-        ("late", "Late"),
-        ("early_leave", "Early Leave"),
-        ("working_remotely", "Working Remotely"),
-    ]
+        return f"LV {self.employee_id} {self.get_leave_type_display()} {self.start_date}→{self.end_date} [{self.get_status_display()}]"
 
 
+# =========================
+# Attendance (thay cho AttendanceSummary / bỏ ShiftInstance)
+# =========================
+class Attendance(TimeStampedModel):
+    """
+    Một bản ghi chấm công cho nhân viên theo NGÀY,
+    gắn với mẫu ca (ShiftTemplate) và các mốc in/out.
+    Dùng IntegerChoices để lưu int trong DB.
+    """
+    class Source(models.IntegerChoices):
+        WEB = 0, "Web"
+        MOBILE = 1, "Mobile"
+        LARK = 2, "Lark"
+        GOOGLE_FORMS = 3, "Google Forms"
 
-    # khóa ngày  - nhân viên ( 1 dòng / nhân viên / ngày )
-    employee_id = models.IntegerField(null=True, blank=True)  # thay vì FK Employee
-    date = models.DateField() 
+    class WorkMode(models.IntegerChoices):
+        ONSITE = 0, "Onsite (Văn phòng)"
+        REMOTE = 1, "Remote (Online)"
 
-    # phút kế hoạch và thực tế 
-    planned_minutes = models.IntegerField(default=0) # phút kế hoạch
-    worked_minutes = models.IntegerField(default=0)  # giờ làm thực tế
-    late_minutes = models.IntegerField(default=0)    # phút trễ
-    early_leave_minutes = models.IntegerField(default=0)  # phút về sớm
-    overtime_minutes = models.IntegerField(default=0)  # làm thêm 
+    class Status(models.IntegerChoices):
+        PENDING = 0, "Pending"
+        APPROVED = 1, "Approved"
+        REJECTED = 2, "Rejected"
+        CANCELED = 3, "Canceled"
 
+    # gắn với employee & mẫu ca
+    employee_id = models.IntegerField(null=True, blank=True, db_index=True)  # thay vì FK Employee
+    shift_template = models.ForeignKey(ShiftTemplate, null=False, blank=False, on_delete=models.PROTECT)
 
-    on_leave = models.ForeignKey(LeaveRequest,  null=True, blank=True, on_delete=models.SET_NULL)
+    # nếu nghỉ: liên kết tới đơn nghỉ
+    on_leave = models.ForeignKey(LeaveRequest, null=True, blank=True, on_delete=models.SET_NULL)
 
-    status = models.CharField(max_length=16,choices=ATTENDANCE_STATUS, default="absent")  
-    notes = models.TextField(blank=True) 
+    # ngày làm việc & thời gian ra/vào ca
+    date = models.DateField(null=False, blank=False, db_index=True)
+    ts_in = models.DateTimeField(null=True, blank=True)
+    ts_out = models.DateTimeField(null=True, blank=True)
 
-    # 1) Snapshot toàn bộ event trong ngày (đã lọc theo ngày & is_valid)
-    #    Mỗi item nên lưu: {id, ts, event_type, source, is_valid}
-    events = models.JSONField(default=list)
+    # nguồn & chế độ làm việc (enum số)
+    source = models.IntegerField(choices=Source.choices, default=Source.WEB)
+    work_mode = models.IntegerField(choices=WorkMode.choices, default=WorkMode.ONSITE)
 
-    # 2) Các cặp in/out đã ghép
-    #    Ví dụ: [{"in": "...", "out": "...", "source_in": "mobile", "source_out": "web",
-    segments = models.JSONField(default=list) 
-
-    class Meta:
-        ordering = ["-date"]
-
-
-
-class AttendanceCorrection(TimeStampedModel):
-    CORRECTION_STATUS = [
-        ("pending", "Pending"),
-        ("approved", "Approved"),
-        ("rejected", "Rejected"),
-    ]
-    employee_id = models.IntegerField(null=True, blank=True) # thay vì FK Employee
-    date = models.DateField() 
-    type = models.CharField(max_length=32)  
-   
-    status = models.CharField(max_length=16, default="pending", choices = CORRECTION_STATUS)  
-   
-    changeset = models.JSONField() 
-
-    class Meta:
-        ordering = ["-created_at"]
-
-
-
-
-# ===== Settings / Audit / Notifications =====
-class HolidayCalendar(TimeStampedModel): 
-    date = models.DateField(unique=True)
-    name = models.CharField(max_length=120)
-
-    class Meta:
-        ordering = ["-date"]
-
-
-class ApprovalFlow(TimeStampedModel): 
-    object_type = models.CharField(max_length=32)  
-    role = models.CharField(max_length=32)        
-    step = models.IntegerField(default=1)
-
-    class Meta:
-        unique_together = [("object_type", "role", "step")]
-        ordering = ["object_type", "step"]
-
-
-class Notification(TimeStampedModel): 
-    to_user = models.IntegerField(null=True, blank=True)  # thay vì FK Employee
-    channel = models.CharField(max_length=16, default="inapp")  
-    title = models.CharField(max_length=200)
-    body = models.TextField()
-    payload = models.JSONField(null=True, blank=True)
-    delivered = models.BooleanField(default=False)
-
-
-class AuditLog(TimeStampedModel): 
-    actor = models.IntegerField(null=True, blank=True)  # thay vì FK Employee
-    action = models.CharField(max_length=64)
-    object_type = models.CharField(max_length=64)
-    object_id = models.CharField(max_length=64)
-    before = models.JSONField(null=True, blank=True)
-    after = models.JSONField(null=True, blank=True)
-    ip = models.GenericIPAddressField(null=True, blank=True)
-
-
-# class event V2
-
-class AttendanceSummaryV2(TimeStampedModel):
-    # mỗi nhân viên sẽ có một summary tạo sẵn, chỉ cần vào update thôi, nếu có nhiều ca thì tạo nhiều summary
-    SOURCE_CHOICES = [
-        ("web", "Web"),
-        ("mobile", "Mobile"),
-        ("lark", "Lark"),
-        ("googleforms", "Google Forms"),
-    ]
-    WORK_MODE = [
-        ("onsite", "Onsite (Văn phòng)"),
-        ("remote", "Remote (Online)"),
-    ]
-
-    class Status(models.TextChoices):
-        PENDING = "pending", "Pending"
-        APPROVED = "approved", "Approved"
-        REJECTED = "rejected", "Rejected"
-        CANCELED = "canceled", "Canceled"
-    
-    # gắn với employee
-    employee_id = models.IntegerField(null=True, blank=True)# thay vì FK Employee
-    shift_instance = models.ForeignKey(ShiftInstance, null=False, blank=False, on_delete=models.PROTECT) 
-    on_leave = models.ForeignKey(LeaveRequest, null=True,blank=True,on_delete=models.SET_NULL)
-    
-    # thời gian ra vào ca 
-    ts_in = models.DateTimeField(null=True, blank=True) #
-    ts_out =  models.DateTimeField(null=True, blank=True)
-
-
-    # nguồn dữ liệu đến từ
-    source = models.CharField(max_length=16,choices = SOURCE_CHOICES, default="web")  
-    # loại hình làm việc ( để tính hệ số lương)
-    work_mode = models.CharField(max_length=16,choices = WORK_MODE, default="onsite")
-
+    # tiền thưởng/chi phí phát sinh trên phiên làm việc
     bonus = models.DecimalField(
         max_digits=12, decimal_places=2,
-        default=Decimal("1.00"),
+        default=Decimal("0.00"),
         validators=[MinValueValidator(Decimal("0.00"))],
         help_text="Tiền thưởng/bonus cho phiên làm việc (nếu có)."
-    ) # hệ số của ca làm 
-    
-    
+    )
 
-    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
-    is_valid = models.BooleanField(default=False)  #chỉ true khi đã duyệt
+    status = models.IntegerField(choices=Status.choices, default=Status.PENDING)
+    is_valid = models.BooleanField(default=False, help_text="True khi đã duyệt hợp lệ")
 
     requested_by = models.IntegerField(null=True, blank=True)
     requested_at = models.DateTimeField(default=timezone.now, editable=False)
@@ -291,24 +211,32 @@ class AttendanceSummaryV2(TimeStampedModel):
     approved_at = models.DateTimeField(null=True, blank=True)
     reject_reason = models.CharField(max_length=255, blank=True, default="")
 
-    raw_payload = models.JSONField(null=True, blank=True) 
+    raw_payload = models.JSONField(null=True, blank=True)
+
     class Meta:
-        ordering = ["shift_instance__date","ts_in"]
-        constraints =[
+        db_table = "Attendance"
+        ordering = ["date", "ts_in"]
+        constraints = [
+            # Approved thì is_valid phải True
             CheckConstraint(
-                name="approved_requires_is_valid_true",
-                check=Q(status="approved", is_valid=True) | ~Q(status="approved")
+                name="attn_approved_requires_is_valid_true",
+                check=Q(status=1) & Q(is_valid=True) | ~Q(status=1),
+            ),
+            # Nếu có cả in/out thì out phải >= in
+            CheckConstraint(
+                name="attn_ts_out_gte_ts_in_when_both_set",
+                check=Q(ts_out__isnull=True) | Q(ts_in__isnull=True) | Q(ts_out__gte=models.F("ts_in")),
             ),
         ]
         indexes = [
-            models.Index(fields=["employee_id", "status"]),
+            models.Index(fields=["employee_id", "date"]),
             models.Index(fields=["status", "is_valid"]),
+            models.Index(fields=["shift_template"]),
+            models.Index(fields=["source"]),
+            models.Index(fields=["work_mode"]),
         ]
-
-
-    @property
-    def date(self):
-        return self.shift_instance.date if self.shift_instance_id else None
+        # Bật nếu muốn 1 nhân viên chỉ có 1 attendance/ca/ngày:
+        unique_together = [("employee_id", "date", "shift_template")]
 
     def approve(self, manager_user_id: int):
         self.status = self.Status.APPROVED
@@ -322,8 +250,108 @@ class AttendanceSummaryV2(TimeStampedModel):
         self.approved_by = manager_user_id
         self.approved_at = timezone.now()
         self.reject_reason = reason or ""
+    def __str__(self):
+        return f"ATTD {self.employee_id} {self.date} [{self.get_status_display()}]"
+
+# =========================
+# Settings / Audit / Notifications
+# =========================
+class HolidayCalendar(TimeStampedModel):
+    date = models.DateField(unique=True)
+    name = models.CharField(max_length=120)
+
+    class Meta:
+        ordering = ["-date"]
+        db_table = "HolidayCalendar"
+        indexes = [
+            models.Index(fields=["date"]),
+        ]
+
+    def __str__(self):
+        return f"{self.date} - {self.name}"
+
+
+class ApprovalFlow(TimeStampedModel):
+    object_type = models.CharField(max_length=32)   # vd: "leave_request", "attendance", ...
+    role = models.CharField(max_length=32)          # vd: "manager", "hr", ...
+    step = models.IntegerField(default=1)
+
+    class Meta:
+        db_table = "ApprovalFlow"
+        unique_together = [("object_type", "role", "step")]
+        ordering = ["object_type", "step"]
+        indexes = [
+            models.Index(fields=["object_type", "role"]),
+        ]
+
+    def __str__(self):
+        return f"{self.object_type} - {self.role} - step {self.step}"
+
+
+class Notification(TimeStampedModel):
+    class Channel(models.IntegerChoices):
+        INAPP = 0, "In-app"
+        EMAIL = 1, "Email"
+        SMS   = 2, "SMS"
+        LARK  = 3, "Lark"   # << thêm Lark
+
+    # Liên kết ngữ cảnh (để truy vết)
+    object_type = models.CharField(max_length=64, blank=True, default="", help_text="vd: leave_request, attendance, ...")
+    object_id   = models.CharField(max_length=64, blank=True, default="", help_text="ID đối tượng liên quan (string)")
+
+    # Thông tin người nhận
+    to_user         = models.IntegerField(null=True, blank=True, db_index=True)  # employee_id
+    to_email        = models.CharField(max_length=254, blank=True, default="")
+    to_lark_user_id = models.CharField(max_length=64, blank=True, default="", help_text="open_id Lark nếu có")
+
+    # Nội dung & kênh
+    channel = models.IntegerField(choices=Channel.choices, default=Channel.INAPP, db_index=True)
+    title   = models.CharField(max_length=200)
+    body    = models.TextField()
+    payload = models.JSONField(null=True, blank=True, help_text="Raw payload đã gửi (mask thông tin nhạy cảm)")
+
+    # Kết quả gửi
+    delivered     = models.BooleanField(default=False, db_index=True)
+    delivered_at  = models.DateTimeField(null=True, blank=True)
+    attempt_count = models.IntegerField(default=0)
+    last_error    = models.TextField(blank=True, default="")
+
+    # Ghi nhận từ provider
+    provider_message_id  = models.CharField(max_length=128, blank=True, default="")
+    provider_status_code = models.CharField(max_length=32, blank=True, default="")
+    provider_response    = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        db_table = "Notification"
+        indexes = [
+            models.Index(fields=["to_user", "channel", "delivered"]),
+            models.Index(fields=["object_type", "object_id"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self):
+        state = "sent" if self.delivered else "pending/failed"
+        return f"NOTI[{self.get_channel_display()}] to_user={self.to_user or '-'} ({state})"
 
 
 
-    
+class AuditLog(TimeStampedModel):
+    actor = models.IntegerField(null=True, blank=True, db_index=True)  # thay vì FK Employee
+    action = models.CharField(max_length=64)
+    object_type = models.CharField(max_length=64)
+    object_id = models.CharField(max_length=64)
+    before = models.JSONField(null=True, blank=True)
+    after = models.JSONField(null=True, blank=True)
+    ip = models.GenericIPAddressField(null=True, blank=True)
+
+    class Meta:
+        db_table = "AuditLog"
+        indexes = [
+            models.Index(fields=["object_type", "object_id"]),
+            models.Index(fields=["actor"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.action} {self.object_type}#{self.object_id} by {self.actor}"
 

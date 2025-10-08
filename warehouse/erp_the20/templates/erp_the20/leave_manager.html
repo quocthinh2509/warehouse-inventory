@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Leave – Manager</title>
+  <style>
+    :root{--bg:#0f172a;--panel:#111827;--muted:#374151;--text:#e5e7eb;--primary:#22c55e;--danger:#ef4444;--warn:#f59e0b;--border:#1f2937}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,Segoe UI,Roboto}
+    .container{max-width:1200px;margin:32px auto;padding:0 16px}
+    h1{margin:0 0 12px;font-size:20px}
+    .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px}
+    label{display:block;margin:6px 0 4px;color:#cbd5e1}
+    input,select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0b1220;color:var(--text)}
+    .grid{display:grid;gap:12px}
+    .g-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+    .toolbar{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+    .btn{padding:10px 14px;border-radius:10px;border:1px solid var(--border);cursor:pointer;background:#111827;color:#e5e7eb}
+    .btn.primary{background:var(--primary);border-color:#16a34a;color:#041109;font-weight:700}
+    .btn.danger{background:var(--danger);border-color:#dc2626;color:#fff}
+    .btn.warn{background:var(--warn);border-color:#d97706;color:#0f0f06}
+    .table{width:100%;border-collapse:collapse}
+    .table th,.table td{padding:10px;border-bottom:1px solid var(--border);text-align:left}
+    .badge{padding:2px 8px;border-radius:100px;font-size:12px;border:1px solid #263040;background:#0b1220}
+    .right{display:flex;gap:8px;justify-content:flex-end}
+    .pagination{display:flex;gap:8px;align-items:center;margin-top:8px}
+    .muted{color:#9ca3af}
+    .error{color:#fecaca}
+    .success{color:#bbf7d0}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Leave – Manager</h1>
+
+    <div class="card">
+      <div class="grid g-4">
+        <div>
+          <label>Manager ID</label>
+          <input id="manager_id" type="number" placeholder="e.g. 13" />
+        </div>
+        <div>
+          <label>From</label>
+          <input id="from" type="date" />
+        </div>
+        <div>
+          <label>To</label>
+          <input id="to" type="date" />
+        </div>
+        <div>
+          <label>Page size</label>
+          <input id="page_size" type="number" min="1" max="200" value="20" />
+        </div>
+      </div>
+      <div class="toolbar" style="margin-top:8px">
+        <button class="btn" id="btnLoadPending">Load Pending</button>
+        <span id="pendingMsg" class="muted"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <table class="table" id="tblPending">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Emp</th>
+            <th>Type</th>
+            <th>Paid</th>
+            <th>Period</th>
+            <th>Reason</th>
+            <th class="right">Actions</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="pagination">
+        <button class="btn" id="prev">Prev</button>
+        <span id="pageInfo" class="muted"></span>
+        <button class="btn" id="next">Next</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin:0 0 8px">Advanced search</h3>
+      <div class="grid g-4">
+        <div>
+          <label>Manager ID</label>
+          <input id="s_manager" type="number" />
+        </div>
+        <div>
+          <label>Employee IDs (comma)</label>
+          <input id="s_emp" placeholder="204,205" />
+        </div>
+        <div>
+          <label>Status (comma)</label>
+          <input id="s_status" placeholder="0,1" />
+        </div>
+        <div>
+          <label>Leave types (comma)</label>
+          <input id="s_types" placeholder="0,3,4" />
+        </div>
+        <div>
+          <label>Start from</label>
+          <input id="s_start_from" type="date" />
+        </div>
+        <div>
+          <label>Start to</label>
+          <input id="s_start_to" type="date" />
+        </div>
+        <div>
+          <label>End from</label>
+          <input id="s_end_from" type="date" />
+        </div>
+        <div>
+          <label>End to</label>
+          <input id="s_end_to" type="date" />
+        </div>
+        <div>
+          <label>Q (reason contains)</label>
+          <input id="s_q" placeholder="keyword" />
+        </div>
+        <div>
+          <label>Page size</label>
+          <input id="s_page_size" type="number" min="1" max="200" value="20" />
+        </div>
+      </div>
+      <div class="toolbar" style="margin-top:8px">
+        <button class="btn" id="btnSearch">Search</button>
+        <span id="searchMsg" class="muted"></span>
+      </div>
+      <table class="table" id="tblSearch">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Emp</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Period</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+const API_BASE = "/the20/leave/requests";
+function getCookie(name){const v=`; ${document.cookie}`.split(`; ${name}=`);if(v.length===2)return v.pop().split(';').shift()}
+const CSRF = getCookie('csrftoken');
+const headers = {'Content-Type':'application/json','X-CSRFToken':CSRF};
+
+let curPage=1; let nextUrl=null; let prevUrl=null; let total=0;
+
+// Load Pending
+async function loadPending(page){
+  curPage = page||1;
+  const manager = document.getElementById('manager_id').value;
+  const from = document.getElementById('from').value;
+  const to = document.getElementById('to').value;
+  const pageSize = document.getElementById('page_size').value || '20';
+  if(!manager){document.getElementById('pendingMsg').textContent='Enter Manager ID';return}
+  document.getElementById('pendingMsg').textContent='Loading...';
+  const params = new URLSearchParams({manager_id:String(manager), page:String(curPage), page_size:String(pageSize)});
+  if(from) params.set('from', from); if(to) params.set('to', to);
+  try{
+    const res = await fetch(`${API_BASE}/pending/?${params.toString()}`, {credentials:'same-origin'});
+    const json = await res.json();
+    if(!res.ok) throw new Error(json.detail||'Load failed');
+    renderPending(json.results||[]);
+    total=json.count||0; nextUrl=json.next; prevUrl=json.previous;
+    const startIdx=(curPage-1)*(+pageSize)+1; const endIdx=Math.min(startIdx+(json.results||[]).length-1,total);
+    document.getElementById('pageInfo').textContent = `${startIdx}-${endIdx} / ${total}`;
+    document.getElementById('pendingMsg').textContent='';
+  }catch(err){document.getElementById('pendingMsg').textContent=err.message}
+}
+
+function renderPending(rows){
+  const tbody=document.querySelector('#tblPending tbody'); tbody.innerHTML='';
+  for(const r of rows){
+    const tr=document.createElement('tr');
+    tr.innerHTML = `
+      <td>${r.id}</td>
+      <td>${r.employee_id}</td>
+      <td>${r.leave_type_display || r.leave_type}</td>
+      <td>${r.paid?'Yes':'No'}</td>
+      <td>${r.start_date} → ${r.end_date}</td>
+      <td>${r.reason||''}</td>
+      <td class="right">
+        <button class="btn primary" data-act="approve" data-id="${r.id}">Approve</button>
+        <button class="btn danger" data-act="reject" data-id="${r.id}">Reject</button>
+      </td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+document.getElementById('btnLoadPending').addEventListener('click', ()=>loadPending(1));
+document.getElementById('prev').addEventListener('click', ()=>{ if(prevUrl){curPage=Math.max(1,curPage-1); loadPending(curPage);} });
+document.getElementById('next').addEventListener('click', ()=>{ if(nextUrl){curPage=curPage+1; loadPending(curPage);} });
+
+document.querySelector('#tblPending').addEventListener('click', async (e)=>{
+  const btn=e.target.closest('button'); if(!btn) return;
+  const id=btn.dataset.id; const act=btn.dataset.act; const manager=parseInt(document.getElementById('manager_id').value,10);
+  if(!manager){return alert('Manager ID required')}
+  try{
+    const res = await fetch(`${API_BASE}/${id}/decide/`, {method:'PUT',credentials:'same-origin',headers,body:JSON.stringify({manager_id:manager, approve: act==='approve'})});
+    const json = await res.json();
+    if(!res.ok) throw new Error(json.detail||'Decision failed');
+    loadPending(curPage);
+  }catch(err){alert(err.message)}
+});
+
+// Advanced search
+async function runSearch(){
+  const params = new URLSearchParams();
+  const manager=document.getElementById('s_manager').value; if(manager) params.set('manager_id', manager);
+  const emp=document.getElementById('s_emp').value; if(emp) params.set('employee_id', emp);
+  const st=document.getElementById('s_status').value; if(st) params.set('status', st);
+  const tp=document.getElementById('s_types').value; if(tp) params.set('leave_type', tp);
+  const sf=document.getElementById('s_start_from').value; if(sf) params.set('start_from', sf);
+  const st2=document.getElementById('s_start_to').value; if(st2) params.set('start_to', st2);
+  const ef=document.getElementById('s_end_from').value; if(ef) params.set('end_from', ef);
+  const et=document.getElementById('s_end_to').value; if(et) params.set('end_to', et);
+  const q=document.getElementById('s_q').value; if(q) params.set('q', q);
+  const pz=document.getElementById('s_page_size').value || '20'; params.set('page_size', pz);
+  document.getElementById('searchMsg').textContent = 'Loading...';
+  try{
+    const res = await fetch(`${API_BASE}/search/?${params.toString()}`, {credentials:'same-origin'});
+    const json = await res.json();
+    if(!res.ok) throw new Error(json.detail||'Search failed');
+    renderSearch(json.results || json); // supports paged or unpaged
+    document.getElementById('searchMsg').textContent = '';
+  }catch(err){document.getElementById('searchMsg').textContent = err.message}
+}
+
+function renderSearch(rows){
+  const tbody=document.querySelector('#tblSearch tbody'); tbody.innerHTML='';
+  for(const r of (rows||[])){
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td>${r.id}</td>
+      <td>${r.employee_id}</td>
+      <td>${r.leave_type_display || r.leave_type}</td>
+      <td><span class="badge">${r.status_display || r.status}</span></td>
+      <td>${r.start_date} → ${r.end_date}</td>
+      <td>${r.reason || ''}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+document.getElementById('btnSearch').addEventListener('click', runSearch);
+</script>
+</body>
+</html>

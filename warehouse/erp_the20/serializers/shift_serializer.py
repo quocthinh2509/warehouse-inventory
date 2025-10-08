@@ -1,46 +1,48 @@
-# erp_the20/serializers/shift_serializer.py
-from datetime import datetime
 from rest_framework import serializers
-from erp_the20.models import ShiftTemplate, ShiftInstance
-#from erp_the20.serializers.employee_serializer import EmployeeReadSerializer
+from rest_framework.validators import UniqueValidator
+from erp_the20.models import ShiftTemplate
 
-# ---------- Write serializers ----------
-class ShiftTemplateWriteSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ShiftTemplate
-        fields = "__all__"
-
-class ShiftInstanceWriteSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ShiftInstance
-        fields = "__all__"
-
-
-
-# ---------- Read serializers ----------
 class ShiftTemplateReadSerializer(serializers.ModelSerializer):
     class Meta:
         model = ShiftTemplate
         fields = [
             "id", "code", "name", "start_time", "end_time",
-            "break_minutes", "overnight"
+            "break_minutes", "overnight", "pay_factor",
+            "created_at", "updated_at", "deleted_at",
         ]
 
-class ShiftInstanceReadSerializer(serializers.ModelSerializer):
-    # Map tên output "shift_template" -> field thật "template"
-    template = ShiftTemplateReadSerializer( read_only=True)
+class ShiftTemplateWriteSerializer(serializers.ModelSerializer):
+    # Unique chỉ kiểm tra trên bản active (deleted_at IS NULL)
+    code = serializers.CharField(
+        max_length=16,
+        validators=[UniqueValidator(
+            queryset=ShiftTemplate.objects.filter(deleted_at__isnull=True),
+            message="Code đã tồn tại ở bản active."
+        )]
+    )
+
     class Meta:
-        model = ShiftInstance
-        fields = ["id", "date", "template", "status"]
+        model = ShiftTemplate
+        fields = [
+            "code", "name", "start_time", "end_time",
+            "break_minutes", "overnight", "pay_factor",
+        ]
 
-
-class ShiftInstanceQuerySerializer(serializers.Serializer):
-    date_from = serializers.DateField(required=False)
-    date_to   = serializers.DateField(required=False)
+    def validate_break_minutes(self, v: int):
+        if v < 0:
+            raise serializers.ValidationError("break_minutes phải ≥ 0.")
+        if v > 480:
+            raise serializers.ValidationError("break_minutes quá lớn (≤ 480).")
+        return v
 
     def validate(self, attrs):
-        df = attrs.get("date_from")
-        dt = attrs.get("date_to")
-        if df and dt and df > dt:
-            raise serializers.ValidationError({"date_to": "date_to must be >= date_from"})
+        inst = getattr(self, "instance", None)
+        start = attrs.get("start_time", getattr(inst, "start_time", None))
+        end = attrs.get("end_time", getattr(inst, "end_time", None))
+        overnight = attrs.get("overnight", getattr(inst, "overnight", False))
+
+        if start and end and not overnight and end <= start:
+            raise serializers.ValidationError(
+                {"end_time": "Ca không qua đêm (overnight=False) thì end_time phải > start_time."}
+            )
         return attrs
