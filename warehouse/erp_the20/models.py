@@ -44,10 +44,6 @@ class Position(TimeStampedModel):
     class Meta:
         ordering = ["name"]
         db_table = "Position"
-        indexes = [
-            models.Index(fields=["code"]),
-            models.Index(fields=["name"]),
-        ]
         constraints = [
             UniqueConstraint(fields=["code"], condition=Q(deleted_at__isnull=True), name="uniq_active_position_code")
         ]
@@ -76,9 +72,6 @@ class ShiftTemplate(TimeStampedModel):
     class Meta:
         ordering = ["code"]
         db_table = "ShiftTemplate"
-        indexes = [
-            models.Index(fields=["code"]),
-        ]
         constraints = [
             UniqueConstraint(
                 fields=["code"],
@@ -134,17 +127,31 @@ class LeaveRequest(TimeStampedModel):
     decision_ts = models.DateTimeField(null=True, blank=True)
     decided_by = models.IntegerField(null=True, blank=True)
 
+    handover_to_employee_id = models.IntegerField( # người được bàn giao
+        null=True, blank=True, db_index=True,
+        help_text="Employee ID được bàn giao (có thể null)"
+    )
+    handover_content = models.TextField( # công việc được bàn giao
+        null=True, blank=True,
+        help_text="Nội dung bàn giao (có thể null)"
+    )
+
+
+
     class Meta:
         ordering = ["-created_at"]
         db_table = "LeaveRequest"
-        indexes = [
-            models.Index(fields=["employee_id", "start_date", "end_date", "status"]),
-            models.Index(fields=["leave_type"]),
-        ]
+
         constraints = [
             CheckConstraint(
                 name="leave_dates_valid",
                 check=Q(end_date__gte=models.F("start_date")),
+            ),
+            # không được bàn giao cho chính mình
+            CheckConstraint(
+                name="leave_handover_not_self",
+                check=Q(handover_to_employee_id__isnull=True) |
+                      ~Q(handover_to_employee_id=models.F("employee_id")),
             ),
         ]
 
@@ -210,6 +217,10 @@ class Attendance(TimeStampedModel):
     approved_by = models.IntegerField(null=True, blank=True)
     approved_at = models.DateTimeField(null=True, blank=True)
     reject_reason = models.CharField(max_length=255, blank=True, default="")
+
+    # Tính toán (số phút)
+    worked_minutes = models.IntegerField(default=0, help_text="Số phút làm thực tế (đã trừ break trong ca nếu áp dụng)")
+    paid_minutes   = models.IntegerField(default=0, help_text="Số phút được tính lương (đã áp hệ số/loại trừ)")
 
     raw_payload = models.JSONField(null=True, blank=True)
 
@@ -323,11 +334,6 @@ class Notification(TimeStampedModel):
 
     class Meta:
         db_table = "Notification"
-        indexes = [
-            models.Index(fields=["to_user", "channel", "delivered"]),
-            models.Index(fields=["object_type", "object_id"]),
-            models.Index(fields=["created_at"]),
-        ]
 
     def __str__(self):
         state = "sent" if self.delivered else "pending/failed"

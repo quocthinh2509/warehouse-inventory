@@ -30,6 +30,7 @@ from erp_the20.selectors.leave_selector import (
     list_pending_for_manager,
     filter_leaves,
 )
+
 # optional auth helpers
 try:
     from erp_the20.selectors.user_selector import is_employee_manager, get_external_users_map
@@ -37,9 +38,23 @@ except Exception:
     def is_employee_manager(_): return False
     def get_external_users_map(_): return {}
 
+# ---- OpenAPI common params for pagination
+PAGE_PARAMS = [
+    OpenApiParameter("page", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False, description="Trang (mặc định 1)"),
+    OpenApiParameter("page_size", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False, description="Kích thước trang (mặc định 20, tối đa 200)"),
+]
+
 def _build_user_map_for_qs(qs) -> dict:
-    ids = list(qs.values_list("employee_id", flat=True).distinct())
-    return get_external_users_map(ids)
+    ids = set(qs.values_list("employee_id", flat=True).distinct())
+    # include cả người nhận bàn giao nếu có
+    try:
+        handover_ids = qs.values_list("handover_to_employee_id", flat=True).distinct()
+        for x in handover_ids:
+            if x:
+                ids.add(x)
+    except Exception:
+        pass
+    return get_external_users_map(list(ids))
 
 
 @extend_schema_view(
@@ -67,6 +82,9 @@ def _build_user_map_for_qs(qs) -> dict:
                     "hours": None,
                     "paid": True,
                     "reason": "Family event",
+                    # NEW: bàn giao
+                    "handover_to_employee_id": 205,
+                    "handover_content": "Đã bàn giao file báo cáo tuần cho bạn A",
                 },
                 request_only=True,
             )
@@ -99,7 +117,7 @@ class LeaveRequestViewSet(
 
     def retrieve(self, request, pk=None):
         obj = self.get_object()
-        umap = get_external_users_map([obj.employee_id])
+        umap = get_external_users_map([obj.employee_id, getattr(obj, "handover_to_employee_id", None)])
         return Response(LeaveRequestReadSerializer(obj, context={"user_map": umap}).data)
 
     def create(self, request):
@@ -109,21 +127,20 @@ class LeaveRequestViewSet(
             obj = svc_create_leave(**ser.validated_data)
         except Exception as e:
             return Response({"detail": str(e)}, status=400)
-        umap = get_external_users_map([obj.employee_id])
+        umap = get_external_users_map([obj.employee_id, getattr(obj, "handover_to_employee_id", None)])
         return Response(LeaveRequestReadSerializer(obj, context={"user_map": umap}).data, status=201)
 
     def update(self, request, pk=None):
-        payload = dict(request.data)
-        payload["id"] = pk
-        ser = LeaveUpdateSerializer(data=payload)
+        # KHÔNG đẩy 'id' thừa vào serializer để tránh lỗi "unexpected field"
+        ser = LeaveUpdateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         try:
-            obj = svc_update_leave(leave_id=int(pk), **{k: v for k, v in ser.validated_data.items() if k != "id"})
+            obj = svc_update_leave(leave_id=int(pk), **ser.validated_data)
         except PermissionError as e:
             return Response({"detail": str(e)}, status=403)
         except Exception as e:
             return Response({"detail": str(e)}, status=400)
-        umap = get_external_users_map([obj.employee_id])
+        umap = get_external_users_map([obj.employee_id, getattr(obj, "handover_to_employee_id", None)])
         return Response(LeaveRequestReadSerializer(obj, context={"user_map": umap}).data)
 
     def destroy(self, request, pk=None):
@@ -156,7 +173,7 @@ class LeaveRequestViewSet(
             return Response({"detail": str(e)}, status=403)
         except Exception as e:
             return Response({"detail": str(e)}, status=400)
-        umap = get_external_users_map([obj.employee_id])
+        umap = get_external_users_map([obj.employee_id, getattr(obj, "handover_to_employee_id", None)])
         return Response(LeaveRequestReadSerializer(obj, context={"user_map": umap}).data)
 
     @extend_schema(
@@ -178,13 +195,15 @@ class LeaveRequestViewSet(
             obj = svc_manager_decide(leave_id=int(pk), manager_id=manager_id, approve=approve)
         except Exception as e:
             return Response({"detail": str(e)}, status=400)
-        umap = get_external_users_map([obj.employee_id])
+        umap = get_external_users_map([obj.employee_id, getattr(obj, "handover_to_employee_id", None)])
         return Response(LeaveRequestReadSerializer(obj, context={"user_map": umap}).data)
 
     @extend_schema(
         tags=["Leave"],
         summary="Danh sách đơn của tôi",
-        parameters=[OpenApiParameter("employee_id", OpenApiTypes.INT, OpenApiParameter.QUERY)],
+        parameters=PAGE_PARAMS + [
+            OpenApiParameter("employee_id", OpenApiTypes.INT, OpenApiParameter.QUERY),
+        ],
         responses={200: LeaveRequestReadSerializer(many=True)},
     )
     @action(detail=False, methods=["get"], url_path="my")
@@ -196,12 +215,12 @@ class LeaveRequestViewSet(
             return Response({"detail": "Missing/invalid employee_id"}, status=400)
 
         qs = list_my_leaves(employee_id)
-        page = self.paginate_queryset(qs)                 # <<=== phân trang
+        page = self.paginate_queryset(qs)
         umap = _build_user_map_for_qs(qs)
 
         if page is not None:
             ser = LeaveRequestReadSerializer(page, many=True, context={"user_map": umap})
-            return self.get_paginated_response(ser.data)  # <<=== trả paged
+            return self.get_paginated_response(ser.data)
 
         ser = LeaveRequestReadSerializer(qs, many=True, context={"user_map": umap})
         return Response(ser.data)
@@ -209,7 +228,7 @@ class LeaveRequestViewSet(
     @extend_schema(
         tags=["Leave"],
         summary="Danh sách pending cho manager",
-        parameters=[
+        parameters=PAGE_PARAMS + [
             OpenApiParameter("manager_id", OpenApiTypes.INT, OpenApiParameter.QUERY),
             OpenApiParameter("from", OpenApiTypes.DATE, OpenApiParameter.QUERY),
             OpenApiParameter("to", OpenApiTypes.DATE, OpenApiParameter.QUERY),
@@ -229,21 +248,20 @@ class LeaveRequestViewSet(
         date_from = request.query_params.get("from")
         date_to = request.query_params.get("to")
         qs = list_pending_for_manager(date_from, date_to)
-        page = self.paginate_queryset(qs)                 # <<===
+        page = self.paginate_queryset(qs)
         umap = _build_user_map_for_qs(qs)
 
         if page is not None:
             ser = LeaveRequestReadSerializer(page, many=True, context={"user_map": umap})
-            return self.get_paginated_response(ser.data)  # <<===
+            return self.get_paginated_response(ser.data)
 
         ser = LeaveRequestReadSerializer(qs, many=True, context={"user_map": umap})
         return Response(ser.data)
 
-
     @extend_schema(
         tags=["Leave"],
         summary="Tìm kiếm đơn nghỉ (lọc nhiều điều kiện)",
-        parameters=[
+        parameters=PAGE_PARAMS + [
             OpenApiParameter("manager_id", OpenApiTypes.INT, OpenApiParameter.QUERY, description="Nếu là manager, có thể không truyền employee_id"),
             OpenApiParameter("employee_id", OpenApiTypes.STR, OpenApiParameter.QUERY, description="1 hoặc nhiều ID: '204' hoặc '204,205'"),
             OpenApiParameter("status", OpenApiTypes.STR, OpenApiParameter.QUERY, description="VD: '0,1' (SUBMITTED, APPROVED)"),
@@ -252,6 +270,8 @@ class LeaveRequestViewSet(
             OpenApiParameter("start_to", OpenApiTypes.DATE, OpenApiParameter.QUERY),
             OpenApiParameter("end_from", OpenApiTypes.DATE, OpenApiParameter.QUERY),
             OpenApiParameter("end_to", OpenApiTypes.DATE, OpenApiParameter.QUERY),
+            OpenApiParameter("handover_to", OpenApiTypes.STR, OpenApiParameter.QUERY, description="lọc theo người nhận bàn giao: '205' hoặc '205,206'"),
+            OpenApiParameter("handover_to_employee_id", OpenApiTypes.STR, OpenApiParameter.QUERY, description="alias của handover_to"),
             OpenApiParameter("q", OpenApiTypes.STR, OpenApiParameter.QUERY, description="Tìm theo lý do"),
         ],
         responses={200: LeaveRequestReadSerializer(many=True)},
@@ -270,12 +290,12 @@ class LeaveRequestViewSet(
             return Response({"detail": "employee_id is required for non-manager search."}, status=400)
 
         qs = filter_leaves(filters, order_by=["-start_date", "-created_at"])
-        page = self.paginate_queryset(qs)                 # <<===
+        page = self.paginate_queryset(qs)
         umap = _build_user_map_for_qs(qs)
 
         if page is not None:
             ser = LeaveRequestReadSerializer(page, many=True, context={"user_map": umap})
-            return self.get_paginated_response(ser.data)  # <<===
+            return self.get_paginated_response(ser.data)
 
         ser = LeaveRequestReadSerializer(qs, many=True, context={"user_map": umap})
         return Response(ser.data)

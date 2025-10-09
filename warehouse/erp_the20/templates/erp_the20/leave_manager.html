@@ -14,25 +14,28 @@
     input,select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0b1220;color:var(--text)}
     .grid{display:grid;gap:12px}
     .g-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+    .g-5{grid-template-columns:repeat(5,minmax(0,1fr))}
     .toolbar{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
     .btn{padding:10px 14px;border-radius:10px;border:1px solid var(--border);cursor:pointer;background:#111827;color:#e5e7eb}
     .btn.primary{background:var(--primary);border-color:#16a34a;color:#041109;font-weight:700}
     .btn.danger{background:var(--danger);border-color:#dc2626;color:#fff}
     .btn.warn{background:var(--warn);border-color:#d97706;color:#0f0f06}
     .table{width:100%;border-collapse:collapse}
-    .table th,.table td{padding:10px;border-bottom:1px solid var(--border);text-align:left}
+    .table th,.table td{padding:10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
     .badge{padding:2px 8px;border-radius:100px;font-size:12px;border:1px solid #263040;background:#0b1220}
     .right{display:flex;gap:8px;justify-content:flex-end}
     .pagination{display:flex;gap:8px;align-items:center;margin-top:8px}
     .muted{color:#9ca3af}
     .error{color:#fecaca}
     .success{color:#bbf7d0}
+    .truncate{max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   </style>
 </head>
 <body>
   <div class="container">
     <h1>Leave – Manager</h1>
 
+    <!-- Pending loader -->
     <div class="card">
       <div class="grid g-4">
         <div>
@@ -68,6 +71,8 @@
             <th>Paid</th>
             <th>Period</th>
             <th>Reason</th>
+            <th>Handover to</th>
+            <th>Handover note</th>
             <th class="right">Actions</th>
           </tr>
         </thead>
@@ -80,9 +85,10 @@
       </div>
     </div>
 
+    <!-- Advanced search -->
     <div class="card">
       <h3 style="margin:0 0 8px">Advanced search</h3>
-      <div class="grid g-4">
+      <div class="grid g-5">
         <div>
           <label>Manager ID</label>
           <input id="s_manager" type="number" />
@@ -98,6 +104,10 @@
         <div>
           <label>Leave types (comma)</label>
           <input id="s_types" placeholder="0,3,4" />
+        </div>
+        <div>
+          <label>Handover to (comma)</label>
+          <input id="s_handover_to" placeholder="205,206" />
         </div>
         <div>
           <label>Start from</label>
@@ -137,6 +147,8 @@
             <th>Status</th>
             <th>Period</th>
             <th>Reason</th>
+            <th>Handover to</th>
+            <th>Handover note</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -185,7 +197,9 @@ function renderPending(rows){
       <td>${r.leave_type_display || r.leave_type}</td>
       <td>${r.paid?'Yes':'No'}</td>
       <td>${r.start_date} → ${r.end_date}</td>
-      <td>${r.reason||''}</td>
+      <td class="truncate" title="${r.reason||''}">${r.reason||''}</td>
+      <td>${r.handover_to_employee_id ?? ''}</td>
+      <td class="truncate" title="${r.handover_content||''}">${r.handover_content||''}</td>
       <td class="right">
         <button class="btn primary" data-act="approve" data-id="${r.id}">Approve</button>
         <button class="btn danger" data-act="reject" data-id="${r.id}">Reject</button>
@@ -217,6 +231,7 @@ async function runSearch(){
   const emp=document.getElementById('s_emp').value; if(emp) params.set('employee_id', emp);
   const st=document.getElementById('s_status').value; if(st) params.set('status', st);
   const tp=document.getElementById('s_types').value; if(tp) params.set('leave_type', tp);
+  const hto=document.getElementById('s_handover_to').value; if(hto) params.set('handover_to', hto);
   const sf=document.getElementById('s_start_from').value; if(sf) params.set('start_from', sf);
   const st2=document.getElementById('s_start_to').value; if(st2) params.set('start_to', st2);
   const ef=document.getElementById('s_end_from').value; if(ef) params.set('end_from', ef);
@@ -243,7 +258,9 @@ function renderSearch(rows){
       <td>${r.leave_type_display || r.leave_type}</td>
       <td><span class="badge">${r.status_display || r.status}</span></td>
       <td>${r.start_date} → ${r.end_date}</td>
-      <td>${r.reason || ''}</td>`;
+      <td class="truncate" title="${r.reason || ''}">${r.reason || ''}</td>
+      <td>${r.handover_to_employee_id ?? ''}</td>
+      <td class="truncate" title="${r.handover_content || ''}">${r.handover_content || ''}</td>`;
     tbody.appendChild(tr);
   }
 }

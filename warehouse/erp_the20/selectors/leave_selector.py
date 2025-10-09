@@ -72,6 +72,12 @@ def filter_leaves(filters: Dict[str, Any], order_by: Optional[List[str]] = None)
     if leave_types:
         qs = qs.filter(leave_type__in=leave_types)
 
+    hto = filters.get("handover_to") or filters.get("handover_to_employee_id")
+    if hto:
+        ids = _as_int_list(hto)
+        if ids:
+            qs = qs.filter(handover_to_employee_id__in=ids)
+
     decided_bys = _as_int_list(filters.get("decided_by"))
     if decided_bys:
         qs = qs.filter(decided_by__in=decided_bys)
@@ -100,5 +106,7 @@ def filter_leaves(filters: Dict[str, Any], order_by: Optional[List[str]] = None)
         qs = qs.order_by(*order_by)
     else:
         qs = qs.order_by("-created_at")
+
+    
 
     return qs

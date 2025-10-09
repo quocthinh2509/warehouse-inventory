@@ -26,6 +26,8 @@ class LeaveRequestReadSerializer(serializers.ModelSerializer):
             "decided_by",
             "created_at",
             "updated_at",
+            "handover_to_employee_id",
+            "handover_content",
         ]
 
 
@@ -39,6 +41,10 @@ class LeaveCreateSerializer(serializers.Serializer):
     end_date = serializers.DateField()
     hours = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
     reason = serializers.CharField(required=False, allow_blank=True, default="")
+    handover_to_employee_id = serializers.IntegerField(required=False, allow_null=True)
+    handover_content = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+
 
 
 class LeaveUpdateSerializer(serializers.Serializer):
@@ -49,6 +55,8 @@ class LeaveUpdateSerializer(serializers.Serializer):
     end_date = serializers.DateField(required=False)
     hours = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
     reason = serializers.CharField(required=False, allow_blank=True)
+    handover_to_employee_id = serializers.IntegerField(required=False, allow_null=True)
+    handover_content = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
 
 class LeaveCancelSerializer(serializers.Serializer):

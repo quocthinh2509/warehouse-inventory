@@ -57,7 +57,6 @@ from erp_the20.services.attendance_service import (
 # Helpers
 # -----------------------
 def _qp_get_multi(request, key: str) -> List[str]:
-    """Lấy list giá trị từ query string; hỗ trợ cả CSV."""
     vs = request.query_params.getlist(key)
     if not vs:
         raw = request.query_params.get(key)
@@ -72,7 +71,6 @@ def _qp_get_multi(request, key: str) -> List[str]:
 
 
 def _build_search_filters(request) -> Dict[str, Any]:
-    """Chuẩn hoá bộ lọc cho selector.filter_attendances()."""
     return {
         "employee_id": _qp_get_multi(request, "employee_id") or request.query_params.get("employee_id"),
         "status": _qp_get_multi(request, "status") or request.query_params.get("status"),
@@ -98,7 +96,6 @@ def _build_search_filters(request) -> Dict[str, Any]:
 
 
 def _iter_objs(objs) -> Iterable[Attendance]:
-    """Chuẩn hoá iterable: hỗ trợ 1 object, list/tuple/set, QuerySet, page list."""
     if objs is None:
         return []
     if isinstance(objs, QuerySet):
@@ -109,10 +106,6 @@ def _iter_objs(objs) -> Iterable[Attendance]:
 
 
 def _build_users_map_from_objs(objs) -> dict:
-    """
-    Gom tất cả user-id có thể xuất hiện trong response
-    rồi batch lấy 1 lần qua ecom (tránh N+1).
-    """
     ids = set()
     for o in _iter_objs(objs):
         for uid in (o.employee_id, o.requested_by, o.approved_by):
@@ -220,6 +213,7 @@ class AttendanceViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
 
         users_map = _build_users_map_from_objs(obj)
         return Response(AttendanceReadSerializer(obj, context={"users_map": users_map}).data, status=status.HTTP_201_CREATED)
+        
 
     # PATCH /attendance/{id}/
     def partial_update(self, request, pk=None):
@@ -428,12 +422,6 @@ class AttendanceViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
             OpenApiParameter("requested_by", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
             OpenApiParameter("date_from", OpenApiTypes.DATE, OpenApiParameter.QUERY, required=False),
             OpenApiParameter("date_to", OpenApiTypes.DATE, OpenApiParameter.QUERY, required=False),
-            OpenApiParameter("ts_in_from", OpenApiTypes.DATETIME, OpenApiParameter.QUERY, required=False),
-            OpenApiParameter("ts_in_to", OpenApiTypes.DATETIME, OpenApiParameter.QUERY, required=False),
-            OpenApiParameter("ts_out_from", OpenApiTypes.DATETIME, OpenApiParameter.QUERY, required=False),
-            OpenApiParameter("ts_out_to", OpenApiTypes.DATETIME, OpenApiParameter.QUERY, required=False),
-            OpenApiParameter("bonus_min", OpenApiTypes.NUMBER, OpenApiParameter.QUERY, required=False),
-            OpenApiParameter("bonus_max", OpenApiTypes.NUMBER, OpenApiParameter.QUERY, required=False),
             OpenApiParameter("q", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
         ],
         responses={200: AttendanceReadSerializer(many=True), 400: OpenApiResponse(), 403: OpenApiResponse()},
@@ -443,20 +431,6 @@ class AttendanceViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
         _ = SearchFiltersSerializer(data=request.query_params)
         _.is_valid(raise_exception=False)
         filters = _build_search_filters(request)
-
-        manager_id = request.query_params.get("manager_id")
-        is_mgr = False
-        if manager_id is not None:
-            try:
-                is_mgr = is_employee_manager(int(manager_id))
-            except Exception:
-                is_mgr = False
-
-        if not is_mgr and not filters.get("employee_id"):
-            return Response(
-                {"detail": "employee_id is required for non-manager search."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
         include_deleted = str(request.query_params.get("include_deleted", "")).lower() in ("1", "true", "t", "yes", "y")
         qs = filter_attendances(filters, include_deleted=include_deleted, order_by=["-date", "employee_id"])
@@ -505,7 +479,7 @@ class AttendanceViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
     )
     @action(detail=False, methods=["post"], url_path="batch-register")
     def batch_register(self, request):
-        ser = BatchRegisterSerializer(data=request.data)
+        ser = BatchRegisterSerializer(data=request.body if hasattr(request, "body") else request.data)
         ser.is_valid(raise_exception=True)
         data = ser.validated_data
 
@@ -524,7 +498,6 @@ class AttendanceViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
             ).data,
             "errors": errors,
         }
-        # ALL-OR-NOTHING: có lỗi -> 400, không tạo gì
         return Response(payload, status=status.HTTP_201_CREATED if not errors else status.HTTP_400_BAD_REQUEST)
 
     # PUT /attendance/batch-decide/

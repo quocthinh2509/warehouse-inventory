@@ -16,7 +16,7 @@ def _as_list(v: Any) -> List[str]:
     if isinstance(v, (list, tuple, set)):
         out: List[str] = []
         for x in v:
-            if x is None: 
+            if x is None:
                 continue
             s = str(x).strip()
             if s:
@@ -73,7 +73,7 @@ def list_my_pending(employee_id: int) -> QuerySet[Attendance]:
     return (
         Attendance.objects
         .filter(deleted_at__isnull=True, employee_id=employee_id, status=Attendance.Status.PENDING)
-        .select_related("shift_template")
+        .select_related("shift_template", "on_leave")
         .order_by("date", "shift_template_id")
     )
 
@@ -83,13 +83,13 @@ def list_pending_for_manager(date_from: Optional[str] = None, date_to: Optional[
         qs = qs.filter(date__gte=date_from)
     if date_to:
         qs = qs.filter(date__lte=date_to)
-    return qs.select_related("shift_template").order_by("date", "employee_id")
+    return qs.select_related("shift_template", "on_leave").order_by("date", "employee_id")
 
 def get_by_id(attendance_id: int) -> Attendance:
-    return Attendance.objects.select_related("shift_template").get(id=attendance_id)
+    return Attendance.objects.select_related("shift_template", "on_leave").get(id=attendance_id)
 
 def get_or_none(attendance_id: int) -> Optional[Attendance]:
-    return Attendance.objects.filter(id=attendance_id).select_related("shift_template").first()
+    return Attendance.objects.filter(id=attendance_id).select_related("shift_template", "on_leave").first()
 
 # ==== powerful filter ====
 def filter_attendances(filters: Dict[str, Any], include_deleted: bool = False,
@@ -97,12 +97,12 @@ def filter_attendances(filters: Dict[str, Any], include_deleted: bool = False,
     """
     Hỗ trợ:
       - employee_id, status, work_mode, source (IN / equals)
-      - khoảng ngày/giờ: date/ts_in/ts_out
+      - khoảng ngày/giờ: date/
       - template_code, template_name_icontains
-      - bonus_min/max
+     
       - q: tìm trên code/name template & reject_reason
     """
-    base = Attendance.objects.select_related("shift_template")
+    base = Attendance.objects.select_related("shift_template", "on_leave")
     if not include_deleted:
         base = base.filter(deleted_at__isnull=True)
 
@@ -113,7 +113,6 @@ def filter_attendances(filters: Dict[str, Any], include_deleted: bool = False,
 
     statuses = _as_list(filters.get("status"))
     if statuses:
-        # nhận CSV "0,1" hoặc label "pending,approved"
         ints: List[int] = []
         for s in statuses:
             if str(s).isdigit():
@@ -161,27 +160,8 @@ def filter_attendances(filters: Dict[str, Any], include_deleted: bool = False,
     if d_to:
         base = base.filter(date__lte=d_to)
 
-    ti_from = _to_datetime(filters.get("ts_in_from"))
-    if ti_from:
-        base = base.filter(ts_in__gte=ti_from)
-    ti_to = _to_datetime(filters.get("ts_in_to"))
-    if ti_to:
-        base = base.filter(ts_in__lte=ti_to)
 
-    to_from = _to_datetime(filters.get("ts_out_from"))
-    if to_from:
-        base = base.filter(ts_out__gte=to_from)
-    to_to = _to_datetime(filters.get("ts_out_to"))
-    if to_to:
-        base = base.filter(ts_out__lte=to_to)
-
-    # numeric range
-    bmin = _to_decimal(filters.get("bonus_min"))
-    if bmin is not None:
-        base = base.filter(bonus__gte=bmin)
-    bmax = _to_decimal(filters.get("bonus_max"))
-    if bmax is not None:
-        base = base.filter(bonus__lte=bmax)
+  
 
     # text search
     name_icontains = filters.get("template_name_icontains") or filters.get("template_name")

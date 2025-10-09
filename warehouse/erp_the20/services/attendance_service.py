@@ -9,13 +9,65 @@ from django.utils import timezone
 from django.conf import settings
 
 from erp_the20.models import Attendance, ShiftTemplate, LeaveRequest
-from erp_the20.selectors.user_selector import get_external_users_map  # <-- dùng map user
+from erp_the20.selectors.user_selector import get_external_users_map
 from erp_the20.utils.notify import (
     send_lark_notification,
     send_email_notification,
 )
 
 logger = logging.getLogger(__name__)
+
+# ========= CORE MINUTES (worked / paid) =========
+def _mins(a: datetime, b: datetime) -> int:
+    return max(0, int((b - a).total_seconds() // 60))
+
+def _compute_core_minutes(att: Attendance) -> tuple[int, int]:
+    tmpl = att.shift_template
+    if not tmpl:
+        return 0, 0
+
+    # Khung ca (tự xử lý qua đêm)
+    sched_start, sched_end = _window_for(att)
+    break_min = int(getattr(tmpl, "break_minutes", 0) or 0)
+    sched_minutes = max(0, _mins(sched_start, sched_end) - break_min)
+
+    # Mặc định
+    worked = 0
+    paid = 0
+
+    # Chỉ tính khi record đã Approved
+    if att.status == Attendance.Status.APPROVED:
+        # 1) WORKED = giao giữa thời gian làm thực tế & khung ca
+        if att.ts_in and att.ts_out and att.ts_out >= att.ts_in:
+            overlap_start = max(att.ts_in, sched_start)
+            overlap_end = min(att.ts_out, sched_end)
+            overlap_min = _mins(overlap_start, overlap_end) if overlap_end > overlap_start else 0
+            worked = max(0, overlap_min - break_min)
+
+        # 2) PAID
+        leave = getattr(att, "on_leave", None)
+        if leave and leave.status == LeaveRequest.Status.APPROVED:
+            if bool(leave.paid):
+                # nghỉ có lương -> trả đủ phút ca (sau break)
+                paid = sched_minutes
+            else:
+                # nghỉ không lương -> không trả
+                paid = 0
+        else:
+            # không có đơn nghỉ -> trả theo worked
+            paid = worked
+
+    return worked, paid
+
+@transaction.atomic
+def recalc_and_save_core_minutes(*, attendance_id: int) -> Attendance:
+    obj = _for_update(Attendance.objects.select_related("shift_template", "on_leave")).get(id=attendance_id)
+    worked, paid = _compute_core_minutes(obj)
+    obj.worked_minutes = worked
+    obj.paid_minutes = paid
+    obj.save(update_fields=["worked_minutes", "paid_minutes", "updated_at"])
+    return obj
+
 
 # ========= helper về DB lock =========
 def _supports_for_update() -> bool:
@@ -36,7 +88,7 @@ def _window_for(att: Attendance) -> Tuple[datetime, datetime]:
     end_naive = datetime.combine(att.date, tmpl.end_time)
     if getattr(tmpl, "overnight", False) or tmpl.end_time <= tmpl.start_time:
         end_naive = end_naive + timedelta(days=1)
-    return _aware(start_naive), _aware(end_naive)
+    return _aware(start_naive), _aware(end_naive) # trả về 2 datetime aware
 
 def _window_for_params(date_, tmpl: ShiftTemplate) -> Tuple[datetime, datetime]:
     start_naive = datetime.combine(date_, tmpl.start_time)
@@ -82,7 +134,7 @@ def _raise_if_conflict(employee_id: int, date_, tmpl: ShiftTemplate, exclude_id:
             details.append(f"[#{c.id}] {c.shift_template.code} {s:%Y-%m-%d %H:%M}→{e:%Y-%m-%d %H:%M} (status={c.get_status_display()})")
         raise ValueError(f"Trùng thời gian với bản ghi khác: {'; '.join(details)} (bước {when}).")
 
-# ========= helper: tìm đơn nghỉ đã APPROVED bao phủ ngày =========
+# ========= tìm đơn nghỉ đã APPROVED bao phủ ngày =========
 def _find_approved_leave_for(employee_id: int, date_) -> Optional[LeaveRequest]:
     return (
         LeaveRequest.objects
@@ -97,23 +149,16 @@ def _find_approved_leave_for(employee_id: int, date_) -> Optional[LeaveRequest]:
         .first()
     )
 
-# ========= helper: contact (email + lark open id) từ user selector =========
+# ========= contact (email + lark) =========
 def _resolve_contacts(employee_ids: List[int]) -> Dict[int, Dict[str, Any]]:
-    """
-    Lấy dữ liệu liên hệ 1 lần từ get_external_users_map(employee_ids).
-    Kỳ vọng mỗi user có ít nhất các field: email, lark_open_id (nếu có).
-    Trả về: {emp_id: {"emails": [..], "lark_open_id": "..." }}
-    """
     contacts: Dict[int, Dict[str, Any]] = {}
     if not employee_ids:
         return contacts
-
     try:
         data = get_external_users_map(employee_ids) or {}
     except Exception as ex:
         logger.warning("[attendance] get_external_users_map failed: %s", ex)
         data = {}
-
     for emp_id in employee_ids:
         u = data.get(int(emp_id)) or {}
         email = (u.get("email") or "").strip()
@@ -180,6 +225,7 @@ def update_attendance(
         if shift_template_id is not None or date is not None:
             _raise_if_conflict(obj.employee_id, new_date, tmpl, exclude_id=obj.id, when="update")
 
+        # Nếu non-manager sửa bản ghi đã approved => quay về pending
         if not actor_is_manager and obj.status == Attendance.Status.APPROVED:
             obj.status = Attendance.Status.PENDING
             obj.is_valid = False
@@ -204,8 +250,14 @@ def update_attendance(
         if requested_by is not None:
             obj.requested_by = requested_by
 
+        # Link lại đơn nghỉ (nếu có)
         obj.on_leave = _find_approved_leave_for(obj.employee_id, obj.date)
         obj.save()
+
+        # Nếu record đang Approved thì sau update cần tính lại minutes
+        if obj.status == Attendance.Status.APPROVED and obj.is_valid:
+            _ = recalc_and_save_core_minutes(attendance_id=obj.id)
+
         return obj
 
 def soft_delete_attendance(*, target_id: int) -> None:
@@ -242,6 +294,7 @@ def approve_attendance(*, manager_user_id: int, target_id: int, override_overlap
             _raise_if_conflict(obj.employee_id, obj.date, obj.shift_template, exclude_id=obj.id, when="approve")
         obj.approve(manager_user_id)
         obj.save(update_fields=["status", "is_valid", "approved_by", "approved_at", "updated_at"])
+        _ = recalc_and_save_core_minutes(attendance_id=obj.id)
         return obj
 
 def reject_attendance(*, manager_user_id: int, target_id: int, reason: str = "") -> Attendance:
@@ -354,7 +407,7 @@ def batch_register_attendance(
                 )
             )
 
-    # Notify Lark sau khi tạo thành công
+    # Notify (giữ logic cũ)
     try:
         brief = _format_items_brief(created)
         text = f"[Attendance] Nhân viên #{employee_id} vừa đăng ký {len(created)} ca:\n{brief}"
@@ -400,7 +453,7 @@ def batch_decide_attendance(
         except Exception as e:
             errors.append({"index": idx, "id": it.get("id"), "error": str(e)})
 
-    # Notify cho các bản ghi đã APPROVE
+    # Notify giữ nguyên
     try:
         approved_by_emp: Dict[int, List[Attendance]] = {}
         for a in updated:
@@ -411,7 +464,6 @@ def batch_decide_attendance(
             emp_ids = list(approved_by_emp.keys())
             contacts = _resolve_contacts(emp_ids)
 
-            # Lark: tổng hợp 1 message cho tất cả approvals + @mention nếu có open_id
             total = sum(len(v) for v in approved_by_emp.values())
             lines = [f"[Attendance] Manager #{manager_user_id} đã DUYỆT {total} ca cho {len(approved_by_emp)} nhân viên:"]
             at_user_ids: List[str] = []
@@ -434,7 +486,6 @@ def batch_decide_attendance(
             else:
                 logger.warning("[attendance] Lark send FAILED (batch-decide) manager_id=%s", manager_user_id)
 
-            # Email: gửi cho từng NV danh sách ca đã duyệt
             for emp_id, atts in approved_by_emp.items():
                 emails = (contacts.get(emp_id) or {}).get("emails") or []
                 subject = "Ca làm việc của bạn đã được duyệt"
@@ -465,4 +516,4 @@ def batch_decide_attendance(
     except Exception as ex:
         logger.exception("[attendance] Notify exception (batch-decide): %s", ex)
 
-    return updated, errors
+    return updated, []

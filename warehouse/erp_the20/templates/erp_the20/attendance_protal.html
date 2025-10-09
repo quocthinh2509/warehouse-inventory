@@ -216,7 +216,7 @@
     // =========================
     const API_BASE = "/the20"; // base path đã mount trong urls.py
     const ENDPOINTS = {
-      shiftTemplates: `${API_BASE}/shifts/shift-templates/`,              // GET list templates (expect JSON with id, code, name, start_time, end_time)
+      shiftTemplates: `${API_BASE}/shifts/templates/`,              // GET list templates (expect JSON with id, code, name, start_time, end_time)
       batchRegister: `${API_BASE}/attendance/attendance/batch-register/`,      // POST
       search: `${API_BASE}/attendance/attendance/search`,                      // GET
       pending: `${API_BASE}/attendance/attendance/pending`,                    // GET ?manager_id=&from=&to=

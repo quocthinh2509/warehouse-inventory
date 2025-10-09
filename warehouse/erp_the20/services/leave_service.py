@@ -8,6 +8,7 @@ from django.core.mail import EmailMultiAlternatives
 import logging
 from erp_the20.utils.notify import send_email_notification, send_lark_notification
 from django.conf import settings
+from django.db.models import Q
 
 from erp_the20.models import LeaveRequest, Attendance
 
@@ -48,16 +49,24 @@ def _notify_manager_new_leave(leave: LeaveRequest, manager_id: int) -> None:
     email = get_employee_email(manager_id)
     name_emp = get_employee_fullname(leave.employee_id) or f"Emp#{leave.employee_id}"
     subject = f"[Leave] New request from {name_emp}"
-
     period = f"{leave.start_date} → {leave.end_date}"
+
+    # Handover lines (tránh f-string lồng nhau)
+    extra = ""
+    if leave.handover_to_employee_id or leave.handover_content:
+        extra = (
+            f"\nHandover to: {leave.handover_to_employee_id or '-'}"
+            f"\nHandover note: {leave.handover_content or '-'}"
+        )
+
     text = (
         f"Employee: {name_emp} (ID {leave.employee_id})\n"
         f"Type: {leave.get_leave_type_display()} | Paid: {'Yes' if leave.paid else 'No'}\n"
         f"Period: {period}; Hours: {leave.hours or '-'}\n"
-        f"Reason: {leave.reason or '-'}\n"
+        f"Reason: {leave.reason or '-'}{extra}\n"
     )
 
-    # Email -> manager (log tự tạo trong notify)
+    # Email -> manager
     if email:
         send_email_notification(
             subject=subject,
@@ -76,13 +85,19 @@ def _notify_manager_new_leave(leave: LeaveRequest, manager_id: int) -> None:
         at_uid = None
 
     lark_text = (
-        f"📝 NEW LEAVE\n"
+        "📝 NEW LEAVE\n"
         f"• Emp: {name_emp} (#{leave.employee_id})\n"
         f"• Type: {leave.get_leave_type_display()} | Paid: {'Yes' if leave.paid else 'No'}\n"
         f"• Period: {period}\n"
         f"• Hours: {leave.hours or '-'}\n"
         f"• Reason: {leave.reason or '-'}"
     )
+    if extra:
+        # đổi \n đầu dòng extra thành bullet liền mạch
+        lark_text += f"\n• Handover to: {leave.handover_to_employee_id or '-'}"
+        if leave.handover_content:
+            lark_text += f" / Note: {leave.handover_content}"
+
     send_lark_notification(
         text=lark_text,
         at_user_ids=[at_uid] if at_uid else None,
@@ -137,7 +152,37 @@ def _notify_employee_decision(leave: LeaveRequest, manager_id: int) -> None:
         to_lark_user_id=at_uid or "",
     )
 
+def _unlink_attendances_for_leave(leave: LeaveRequest, db_alias: str) -> None:
+    """
+    Gỡ liên kết on_leave khỏi các Attendance gắn với đơn nghỉ này.
+    Đồng thời, nếu Attendance bị auto-cancel khi approve đơn nghỉ,
+    thì phục hồi về trạng thái hợp lệ (PENDING) để nhân sự có thể đi làm.
+    """
+    qs = (Attendance.objects.using(db_alias)
+          .select_for_update()
+          .filter(on_leave=leave))
 
+    # Gỡ liên kết FK trước (tránh ràng buộc FK khi delete leave)
+    qs.update(on_leave=None)
+
+    # Phục hồi các bản ghi từng bị auto-cancel bởi policy approve leave:
+    # Dấu hiệu "auto-cancel" ở code trước đó là: status=CANCELED, is_valid=False, approved_by=None, approved_at=None
+    restorable = (Attendance.objects.using(db_alias)
+                  .select_for_update()
+                  .filter(
+                      employee_id=leave.employee_id,
+                      date__gte=leave.start_date,
+                      date__lte=leave.end_date,
+                      status=Attendance.Status.CANCELED,
+                      is_valid=False,
+                      approved_by__isnull=True,
+                      approved_at__isnull=True,
+                  ))
+
+    for att in restorable:
+        att.status = Attendance.Status.PENDING
+        att.is_valid = True
+        att.save(using=db_alias, update_fields=["status", "is_valid", "updated_at"])
 
 # ===== Domain helpers =====
 _APPROVABLE_OFF_TYPES = {
@@ -194,6 +239,8 @@ def create_leave(
     paid: bool = False,
     hours: Optional[float] = None,
     reason: str = "",
+    handover_to_employee_id: Optional[int] = None,
+    handover_content: Optional[str] = None,
 ) -> LeaveRequest:
     if end_date < start_date:
         raise ValueError("end_date phải >= start_date.")
@@ -211,6 +258,8 @@ def create_leave(
             status=LeaveRequest.Status.SUBMITTED,
             decision_ts=None,
             decided_by=None,
+            handover_to_employee_id=handover_to_employee_id,
+            handover_content=handover_content or None,
         )
     # notify ngoài transaction
     try:
@@ -234,7 +283,7 @@ def update_leave(
         obj = LeaveRequest.objects.using(db).select_for_update().get(id=leave_id)
         _ensure_editable(obj, actor_employee_id=employee_id, as_manager=False)
 
-        for field in ("paid", "leave_type", "start_date", "end_date", "hours", "reason"):
+        for field in ("paid", "leave_type", "start_date", "end_date", "hours", "reason","handover_to_employee_id","handover_content"):
             if field in changes and changes[field] is not None:
                 setattr(obj, field, changes[field])
 
@@ -250,6 +299,7 @@ def delete_leave(*, leave_id: int, employee_id: int) -> None:
     with _atomic():
         obj = LeaveRequest.objects.using(db).select_for_update().get(id=leave_id)
         _ensure_editable(obj, actor_employee_id=employee_id, as_manager=False)
+        _unlink_attendances_for_leave(obj, db_alias=db)
         obj.delete(using=db)
 
 
@@ -267,6 +317,7 @@ def cancel_leave(*, leave_id: int, actor_employee_id: int, as_manager: bool = Fa
         obj.decision_ts = timezone.now()
         obj.decided_by = actor_employee_id
         obj.save(using=db, update_fields=["status", "decision_ts", "decided_by", "updated_at"])
+        _unlink_attendances_for_leave(obj, db_alias=db)
 
     try:
         _notify_employee_decision(obj, manager_id=actor_employee_id)
