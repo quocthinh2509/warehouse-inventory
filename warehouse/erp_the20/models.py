@@ -318,7 +318,7 @@ class Notification(TimeStampedModel):
     # Nội dung & kênh
     channel = models.IntegerField(choices=Channel.choices, default=Channel.INAPP, db_index=True)
     title   = models.CharField(max_length=200)
-    body    = models.TextField()
+    #body    = models.TextField()
     payload = models.JSONField(null=True, blank=True, help_text="Raw payload đã gửi (mask thông tin nhạy cảm)")
 
     # Kết quả gửi

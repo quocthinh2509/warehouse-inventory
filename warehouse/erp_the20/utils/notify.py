@@ -31,7 +31,6 @@ def _create_log(
     *,
     channel: int,
     title: str,
-    body: str,
     payload: Optional[Dict[str, Any]] = None,
     object_type: str = "",
     object_id: str = "",
@@ -47,7 +46,6 @@ def _create_log(
     return Notification.objects.create(
         channel=channel,
         title=title,
-        body=body,
         payload=payload or None,
         object_type=object_type or "",
         object_id=str(object_id or ""),
@@ -90,8 +88,13 @@ def send_email_notification(
         _create_log(
             channel=Notification.Channel.EMAIL,
             title=_mk_subject(subject),
-            body=text_body,
-            payload={"html": bool(html_body), "cc": list(cc or []), "bcc": list(bcc or [])},
+            payload={
+            "kind": "email",
+            "text": text_body,
+            "has_html": bool(html_body),
+            "cc": list(cc or []),
+            "bcc": list(bcc or []),
+            },
             object_type=object_type,
             object_id=str(object_id or ""),
             to_user=to_user,
@@ -107,7 +110,6 @@ def send_email_notification(
         _create_log(
             channel=Notification.Channel.EMAIL,
             title=_mk_subject(subject),
-            body=text_body,
             payload={"html": bool(html_body), "tos": tos},
             object_type=object_type,
             object_id=str(object_id or ""),
@@ -140,8 +142,14 @@ def send_email_notification(
     _create_log(
         channel=Notification.Channel.EMAIL,
         title=_mk_subject(subject),
-        body=text_body,
-        payload={"html": bool(html_body), "tos": tos, "cc": list(cc or []), "bcc": list(bcc or [])},
+        payload={
+        "kind": "email",
+        "text": text_body,
+        "has_html": bool(html_body),
+        "tos": tos,
+        "cc": list(cc or []),
+        "bcc": list(bcc or []),
+        },
         object_type=object_type,
         object_id=str(object_id or ""),
         to_user=to_user,
@@ -199,8 +207,12 @@ def send_lark_notification(
         _create_log(
             channel=Notification.Channel.LARK,
             title="Lark message",
-            body=text,
-            payload={"webhook_mask": _mask_webhook(None), "at_user_ids": list(at_user_ids or [])},
+            payload={
+                "kind": "lark",
+                "text": text,
+                "webhook_mask": _mask_webhook(None),
+                "at_user_ids": list(at_user_ids or []),
+            },
             object_type=object_type,
             object_id=str(object_id or ""),
             to_user=to_user,
@@ -224,8 +236,13 @@ def send_lark_notification(
     _create_log(
         channel=Notification.Channel.LARK,
         title="Lark message",
-        body=text,
-        payload={"payload": payload, "webhook_mask": _mask_webhook(url)},
+        payload={
+        "kind": "lark",
+        "text": text,
+        "webhook_mask": _mask_webhook(None),
+        "at_user_ids": list(at_user_ids or []),
+        },
+        
         object_type=object_type,
         object_id=str(object_id or ""),
         to_user=to_user,
