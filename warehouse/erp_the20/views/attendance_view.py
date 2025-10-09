@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-
+import json
 from typing import Any, Dict, Iterable, List
 
 from django.db.models import QuerySet
@@ -516,7 +516,18 @@ class AttendanceViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
     )
     @action(detail=False, methods=["post"], url_path="batch-register")
     def batch_register(self, request):
-        ser = BatchRegisterSerializer(data=request.body if hasattr(request, "body") else request.data)
+        payload = request.data  # DRF đã parse dict/list từ JSON/Form
+        # Phòng trường hợp client gửi raw bytes/string và Content-Type sai:
+        if isinstance(payload, (bytes, str)):
+            try:
+                payload = json.loads(payload)
+            except Exception:
+                return Response(
+                    {"detail": "Invalid JSON payload."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        ser = BatchRegisterSerializer(data=payload)
         ser.is_valid(raise_exception=True)
         data = ser.validated_data
 
@@ -527,7 +538,8 @@ class AttendanceViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
             default_work_mode=data["default_work_mode"],
             default_bonus=data.get("default_bonus") or "0.00",
         )
-        payload = {
+
+        payload_out = {
             "created": AttendanceReadSerializer(
                 created,
                 many=True,
@@ -535,7 +547,10 @@ class AttendanceViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
             ).data,
             "errors": errors,
         }
-        return Response(payload, status=status.HTTP_201_CREATED if not errors else status.HTTP_400_BAD_REQUEST)
+        return Response(
+            payload_out,
+            status=status.HTTP_201_CREATED if not errors else status.HTTP_400_BAD_REQUEST,
+        )
 
     # PUT /attendance/batch-decide/
     @extend_schema(
