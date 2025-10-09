@@ -5,9 +5,13 @@ from typing import Any, Dict, Iterable, List
 
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from datetime import datetime
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -23,6 +27,7 @@ from erp_the20.selectors.attendance_selector import (
     filter_attendances,
     list_my_pending,
     list_pending_for_manager,
+    list_shift_options,   # <-- NEW
 )
 from erp_the20.selectors.user_selector import (
     is_employee_manager,
@@ -38,6 +43,8 @@ from erp_the20.serializers.attendance_serializer import (
     CancelSerializer,
     ManagerCancelSerializer,
     SearchFiltersSerializer,
+    ShiftOptionSerializer,   # <-- NEW
+    PunchSerializer,         # <-- NEW
 )
 from erp_the20.services.attendance_service import (
     approve_attendance,
@@ -56,6 +63,36 @@ from erp_the20.services.attendance_service import (
 # -----------------------
 # Helpers
 # -----------------------
+def _parse_ts_iso(raw: str):
+    """
+    Parse ISO 8601 datetimes mạnh:
+    - Hỗ trợ 'Z' (UTC)
+    - Hỗ trợ '+HH:MM'
+    - Trả về AWARE datetime theo timezone hiện tại nếu input là naive
+    """
+    if not raw:
+        return None
+    s = raw.strip()
+
+    # 1) Thử parser của Django (nhận cả 'Z')
+    dt = parse_datetime(s)
+    if dt is None:
+        # 2) fallback: đổi 'Z' -> '+00:00' để hợp fromisoformat cũ
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(s)
+        except Exception:
+            dt = None
+
+    if dt is None:
+        raise ValueError("Invalid ts")
+
+    if not timezone.is_aware(dt):
+        dt = timezone.make_aware(dt, timezone.get_current_timezone())
+    return dt
+
+
 def _qp_get_multi(request, key: str) -> List[str]:
     vs = request.query_params.getlist(key)
     if not vs:
@@ -161,6 +198,7 @@ class AttendanceViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
     - restore, cancel (employee), approve/reject/manager-cancel (manager)
     - my-pending, pending (manager), search
     - batch-register (ALL-OR-NOTHING), batch-decide
+    - shift-options (radio), punch (in/out)
     """
     queryset = Attendance.objects.all()
     serializer_class = AttendanceReadSerializer
@@ -213,7 +251,6 @@ class AttendanceViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
 
         users_map = _build_users_map_from_objs(obj)
         return Response(AttendanceReadSerializer(obj, context={"users_map": users_map}).data, status=status.HTTP_201_CREATED)
-        
 
     # PATCH /attendance/{id}/
     def partial_update(self, request, pk=None):
@@ -542,3 +579,81 @@ class AttendanceViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
             "errors": errors,
         }
         return Response(payload, status=status.HTTP_200_OK)
+
+    # ===== NEW: Radio options =====
+    @extend_schema(
+        tags=["Attendance"],
+        summary="Gợi ý ca hiện tại & sắp tới (radio options)",
+        parameters=[
+            OpenApiParameter("employee_id", OpenApiTypes.INT, OpenApiParameter.QUERY, required=True),
+            OpenApiParameter("ts", OpenApiTypes.DATETIME, OpenApiParameter.QUERY, required=False, description="ISO datetime; mặc định server now"),
+            OpenApiParameter("horizon", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False, description="Phút tương lai để xem ca sắp tới (mặc định 360)"),
+        ],
+        responses={200: ShiftOptionSerializer(many=True)},
+    )
+    @action(detail=False, methods=["get"], url_path="shift-options")
+    def shift_options(self, request):
+        emp = request.query_params.get("employee_id")
+        try:
+            employee_id = int(emp)
+        except (TypeError, ValueError):
+            return Response({"detail": "employee_id is required (int)."}, status=status.HTTP_400_BAD_REQUEST)
+
+        raw_ts = request.query_params.get("ts")
+        at_ts = None
+        if raw_ts:
+            try:
+                at_ts = _parse_ts_iso(raw_ts)
+            except Exception:
+                return Response({"detail": "Invalid ts (ISO datetime)."}, status=status.HTTP_400_BAD_REQUEST)
+
+        horizon = request.query_params.get("horizon")
+        try:
+            horizon_min = int(horizon) if horizon is not None else 360
+        except ValueError:
+            horizon_min = 360
+
+        items = list_shift_options(employee_id=employee_id, at_ts=at_ts, horizon_minutes=horizon_min)
+        return Response(ShiftOptionSerializer(items, many=True).data)
+
+    # ===== NEW: Punch in/out =====
+    @extend_schema(
+        tags=["Attendance"],
+        summary="Chấm IN/OUT cho một Attendance (radio đã chọn)",
+        request=PunchSerializer,
+        responses={200: AttendanceReadSerializer, 400: OpenApiResponse(), 403: OpenApiResponse()},
+        examples=[
+            OpenApiExample("IN now", value={"employee_id": 204, "kind": "in"}, request_only=True),
+            OpenApiExample("OUT with custom ts", value={"employee_id": 204, "kind": "out", "ts": "2025-10-09T22:15:00+07:00"}, request_only=True),
+        ],
+    )
+    @action(detail=True, methods=["post"], url_path="punch")
+    def punch(self, request, pk=None):
+        ser = PunchSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
+
+        obj = get_object_or_404(Attendance, id=pk)
+        if int(obj.employee_id) != int(data["employee_id"]) and not is_employee_manager(int(data["employee_id"])):
+            return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
+
+        ts = data.get("ts") or timezone.now()
+        if not timezone.is_aware(ts):
+            ts = timezone.make_aware(ts, timezone.get_current_timezone())
+
+        # dùng update_attendance để giữ logic revert Approved->Pending khi nhân viên tự sửa
+        kwargs = {"target_id": int(pk), "actor_employee_id": int(data["employee_id"])}
+        if data["kind"] == "in":
+            kwargs["ts_in"] = ts
+        else:
+            kwargs["ts_out"] = ts
+
+        try:
+            updated = update_attendance(**kwargs, actor_is_manager=is_employee_manager(int(data["employee_id"])))
+        except PermissionError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_403_FORBIDDEN)
+        except Exception as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        users_map = _build_users_map_from_objs(updated)
+        return Response(AttendanceReadSerializer(updated, context={"users_map": users_map}).data)

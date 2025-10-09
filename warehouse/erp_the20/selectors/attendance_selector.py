@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-from typing import Any, Dict, List, Optional
-from datetime import datetime, date
+from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime, date, timedelta
 from decimal import Decimal
 
 from django.db.models import Q, QuerySet
@@ -99,7 +99,6 @@ def filter_attendances(filters: Dict[str, Any], include_deleted: bool = False,
       - employee_id, status, work_mode, source (IN / equals)
       - khoảng ngày/giờ: date/
       - template_code, template_name_icontains
-     
       - q: tìm trên code/name template & reject_reason
     """
     base = Attendance.objects.select_related("shift_template", "on_leave")
@@ -152,16 +151,13 @@ def filter_attendances(filters: Dict[str, Any], include_deleted: bool = False,
     if is_valid is not None:
         base = base.filter(is_valid=is_valid)
 
-    # dates / datetimes
+    # dates
     d_from = _to_date(filters.get("date_from") or filters.get("shift_date_from"))
     if d_from:
         base = base.filter(date__gte=d_from)
     d_to = _to_date(filters.get("date_to") or filters.get("shift_date_to"))
     if d_to:
         base = base.filter(date__lte=d_to)
-
-
-  
 
     # text search
     name_icontains = filters.get("template_name_icontains") or filters.get("template_name")
@@ -182,3 +178,82 @@ def filter_attendances(filters: Dict[str, Any], include_deleted: bool = False,
     else:
         base = base.order_by("-date", "employee_id")
     return base
+
+
+# ==== Radio options: ca hiện tại & ca sắp tới ====
+def _sched_window(att: Attendance) -> Tuple[Optional[datetime], Optional[datetime]]:
+    t = att.shift_template
+    if not t or not att.date:
+        return None, None
+    tz = timezone.get_current_timezone()
+    start_naive = datetime.combine(att.date, t.start_time)
+    end_naive = datetime.combine(att.date, t.end_time)
+    if getattr(t, "overnight", False) or t.end_time <= t.start_time:
+        end_naive += timedelta(days=1)
+    start_dt = timezone.make_aware(start_naive, tz) if not timezone.is_aware(start_naive) else start_naive
+    end_dt = timezone.make_aware(end_naive,   tz) if not timezone.is_aware(end_naive)   else end_naive
+    return start_dt, end_dt
+
+def list_shift_options(
+    *, employee_id: int,
+    at_ts: Optional[datetime] = None,
+    horizon_minutes: int = 360,
+) -> List[Dict[str, Any]]:
+    """
+    Trả về danh sách các ca quanh thời điểm `at_ts` để FE hiển thị radio:
+      - include các ca có khung [sched_start, sched_end] giao với [at_ts - 2h, at_ts + horizon]
+      - gắn cờ is_current nếu at_ts ∈ [sched_start, sched_end]
+      - sort: is_current desc, start asc
+    """
+    now = at_ts or timezone.now()
+    if not timezone.is_aware(now):
+        now = timezone.make_aware(now, timezone.get_current_timezone())
+
+    # truy vấn các bản ghi trong khoảng ngày [-1, +1] để cover ca qua đêm
+    q_from = timezone.localdate(now) - timedelta(days=1)
+    q_to   = timezone.localdate(now) + timedelta(days=1)
+
+    qs = (
+        Attendance.objects
+        .filter(
+            deleted_at__isnull=True,
+            employee_id=employee_id,
+            status__in=[Attendance.Status.PENDING, Attendance.Status.APPROVED],
+            date__gte=q_from,
+            date__lte=q_to,
+        )
+        .select_related("shift_template", "on_leave")
+    )
+
+    window_start = now - timedelta(hours=2)
+    window_end = now + timedelta(minutes=max(0, horizon_minutes))
+
+    opts: List[Dict[str, Any]] = []
+    for att in qs:
+        s, e = _sched_window(att)
+        if not s or not e:
+            continue
+        if e <= window_start or s >= window_end:
+            continue
+
+        is_current = (s <= now <= e)
+        starts_in = int((s - now).total_seconds() // 60)
+        ends_in   = int((e - now).total_seconds() // 60)
+        opts.append({
+            "id": att.id,
+            "employee_id": att.employee_id,
+            "shift_template": att.shift_template_id,
+            "template_code": getattr(att.shift_template, "code", None),
+            "template_name": getattr(att.shift_template, "name", None),
+            "date": att.date,
+            "sched_start": s,
+            "sched_end": e,
+            "is_current": is_current,
+            "starts_in_minutes": starts_in,
+            "ends_in_minutes": ends_in,
+            "status": att.status,
+            "status_display": att.get_status_display(),
+        })
+
+    opts.sort(key=lambda x: (not x["is_current"], x["sched_start"]))
+    return opts

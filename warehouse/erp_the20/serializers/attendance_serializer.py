@@ -7,7 +7,6 @@ from django.utils import timezone
 from erp_the20.models import Attendance, LeaveRequest
 from erp_the20.selectors.user_selector import ExternalUser
 
-
 class LeaveBriefSerializer(serializers.ModelSerializer):
     leave_type_display = serializers.CharField(source="get_leave_type_display", read_only=True)
     status_display = serializers.CharField(source="get_status_display", read_only=True)
@@ -24,6 +23,25 @@ class LeaveBriefSerializer(serializers.ModelSerializer):
             "reason",
         ]
 
+class ShiftOptionSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    employee_id = serializers.IntegerField()
+    shift_template = serializers.IntegerField()
+    template_code = serializers.CharField()
+    template_name = serializers.CharField()
+    date = serializers.DateField()
+    sched_start = serializers.DateTimeField()
+    sched_end = serializers.DateTimeField()
+    is_current = serializers.BooleanField()
+    starts_in_minutes = serializers.IntegerField()
+    ends_in_minutes = serializers.IntegerField()
+    status = serializers.IntegerField()
+    status_display = serializers.CharField()
+
+class PunchSerializer(serializers.Serializer):
+    employee_id = serializers.IntegerField()
+    kind = serializers.ChoiceField(choices=[("in","in"),("out","out")])
+    ts = serializers.DateTimeField(required=False)  # mặc định server now nếu không truyền
 
 class AttendanceReadSerializer(serializers.ModelSerializer):
     employee_name = serializers.SerializerMethodField()
@@ -164,14 +182,12 @@ class AttendanceReadSerializer(serializers.ModelSerializer):
         if not s or not e:
             return self._local_iso(obj.ts_in)
 
-        # clamp ts_in vào [s, e]
         cin = obj.ts_in
         if cin < s:
             cin = s
         if cin > e:
             cin = e
 
-        # nếu có ts_out, đảm bảo còn overlap
         if obj.ts_out:
             cout = obj.ts_out
             if cout > e:
@@ -190,14 +206,12 @@ class AttendanceReadSerializer(serializers.ModelSerializer):
         if not s or not e:
             return self._local_iso(obj.ts_out)
 
-        # clamp ts_out vào [s, e]
         cout = obj.ts_out
         if cout > e:
             cout = e
         if cout < s:
             cout = s
 
-        # nếu có ts_in, đảm bảo còn overlap
         if obj.ts_in:
             cin = obj.ts_in
             if cin < s:
@@ -221,9 +235,8 @@ class AttendanceCreateSerializer(serializers.Serializer):
     work_mode = serializers.ChoiceField(choices=Attendance.WorkMode.choices, default=Attendance.WorkMode.ONSITE)
     bonus = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, default="0.00")
 
-
 class AttendanceUpdateSerializer(serializers.Serializer):
-    employee_id = serializers.IntegerField()  # ai đang sửa (để check quyền manager nếu cần)
+    employee_id = serializers.IntegerField()
     shift_template = serializers.IntegerField(required=False)
     date = serializers.DateField(required=False)
     ts_in = serializers.DateTimeField(required=False, allow_null=True)
@@ -233,15 +246,12 @@ class AttendanceUpdateSerializer(serializers.Serializer):
     bonus = serializers.DecimalField(max_digits=12, decimal_places=2, required=False)
     requested_by = serializers.IntegerField(required=False)
 
-
 class CancelSerializer(serializers.Serializer):
     employee_id = serializers.IntegerField()
-
 
 class ManagerCancelSerializer(serializers.Serializer):
     manager_id = serializers.IntegerField()
     reason = serializers.CharField(required=False, allow_blank=True, default="")
-
 
 class ApproveDecisionSerializer(serializers.Serializer):
     manager_id = serializers.IntegerField()
@@ -249,34 +259,27 @@ class ApproveDecisionSerializer(serializers.Serializer):
     reason = serializers.CharField(required=False, allow_blank=True, default="")
     override_overlap = serializers.BooleanField(required=False, default=False)
 
-
 class SearchFiltersSerializer(serializers.Serializer):
     employee_id = serializers.CharField(required=False)
-    status = serializers.CharField(required=False)  # CSV "0,1" hoặc label
+    status = serializers.CharField(required=False)
     is_valid = serializers.CharField(required=False)
-    work_mode = serializers.CharField(required=False)     # CSV
-    source = serializers.CharField(required=False)        # CSV
-    template_code = serializers.CharField(required=False) # CSV
-    template_name = serializers.CharField(required=False) # -> template_name_icontains
-
+    work_mode = serializers.CharField(required=False)
+    source = serializers.CharField(required=False)
+    template_code = serializers.CharField(required=False)
+    template_name = serializers.CharField(required=False)
     approved_by = serializers.CharField(required=False)
     requested_by = serializers.CharField(required=False)
-
     date_from = serializers.DateField(required=False)
     date_to = serializers.DateField(required=False)
     ts_in_from = serializers.CharField(required=False)
     ts_in_to = serializers.CharField(required=False)
     ts_out_from = serializers.CharField(required=False)
     ts_out_to = serializers.CharField(required=False)
-
     bonus_min = serializers.CharField(required=False)
     bonus_max = serializers.CharField(required=False)
-
     q = serializers.CharField(required=False)
     include_deleted = serializers.BooleanField(required=False)
 
-
-# ---------- Batch register ----------
 class BatchRegisterItemSerializer(serializers.Serializer):
     date = serializers.DateField()
     shift_template = serializers.IntegerField()
@@ -286,13 +289,10 @@ class BatchRegisterItemSerializer(serializers.Serializer):
 class BatchRegisterSerializer(serializers.Serializer):
     employee_id = serializers.IntegerField()
     items = BatchRegisterItemSerializer(many=True)
-
     default_source = serializers.ChoiceField(choices=Attendance.Source.choices, default=Attendance.Source.WEB)
     default_work_mode = serializers.ChoiceField(choices=Attendance.WorkMode.choices, default=Attendance.WorkMode.ONSITE)
     default_bonus = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, default="0.00")
 
-
-# ---------- Batch approve/reject ----------
 class BatchDecisionItemSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     approve = serializers.BooleanField()
