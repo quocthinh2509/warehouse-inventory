@@ -1,22 +1,19 @@
+# -*- coding: utf-8 -*-
+"""
+Selector layer cho Position: chỉ ủy quyền sang repo.
+"""
+from __future__ import annotations
+from typing import Optional
+from django.db.models import QuerySet
+
 from erp_the20.models import Position
+from erp_the20.repositories import position_repository as repo
 
-# Lấy Position theo ID
-def get_position_by_id(pos_id: int):
-    """
-    Trả về Position theo ID.
-    """
-    return Position.objects.filter(id=pos_id).first()
+def get_position_by_id(pos_id: int) -> Optional[Position]:
+    return repo.get_by_id(pos_id)
 
-# Lấy Position theo code
-def get_position_by_code(code: str):
-    """
-    Trả về Position theo code.
-    """
-    return Position.objects.filter(code=code).first()
+def get_position_by_code(code: str) -> Optional[Position]:
+    return repo.get_by_code(code)
 
-# Lấy danh sách tất cả Position
-def list_all_positions():
-    """
-    Trả về danh sách tất cả Position, kèm department, sắp xếp theo name.
-    """
-    return Position.objects.all().select_related("department").order_by("name")
+def list_all_positions() -> QuerySet[Position]:
+    return repo.list_all()

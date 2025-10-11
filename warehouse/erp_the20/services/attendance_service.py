@@ -212,7 +212,8 @@ def update_attendance(
     *, target_id: int, actor_employee_id: int,
     shift_template_id: Optional[int] = None, date=None, ts_in=None, ts_out=None,
     source: Optional[int] = None, work_mode: Optional[int] = None, bonus=None,
-    requested_by: Optional[int] = None, actor_is_manager: bool = False
+    requested_by: Optional[int] = None, actor_is_manager: bool = False,
+    raw_payload_patch: Optional[Dict[str, Any]] = None  # <-- NEW
 ) -> Attendance:
     with transaction.atomic():
         obj = _for_update(Attendance.objects).get(id=target_id)
@@ -249,6 +250,15 @@ def update_attendance(
             obj.bonus = bonus
         if requested_by is not None:
             obj.requested_by = requested_by
+
+        if raw_payload_patch:
+            allow_keys = {"remote_id", "pass", "note"}
+            current = dict(obj.raw_payload or {})
+            # Chuẩn hóa 'password' -> 'pass'
+            if "password" in raw_payload_patch and "pass" not in raw_payload_patch:
+                raw_payload_patch = {**raw_payload_patch, "pass": raw_payload_patch.get("password")}
+            merged = {**current, **{k: v for k, v in raw_payload_patch.items() if k in allow_keys and v not in (None, "")}}
+            obj.raw_payload = merged
 
         # Link lại đơn nghỉ (nếu có)
         obj.on_leave = _find_approved_leave_for(obj.employee_id, obj.date)

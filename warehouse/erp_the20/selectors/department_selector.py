@@ -1,22 +1,19 @@
+# -*- coding: utf-8 -*-
+"""
+Selector layer cho Department: chỉ ủy quyền sang repo.
+"""
+from __future__ import annotations
+from typing import Optional
+from django.db.models import QuerySet
+
 from erp_the20.models import Department
+from erp_the20.repositories import department_repository as repo
 
-# Lấy Department theo ID
-def get_department_by_id(dept_id: int):
-    """
-    Trả về Department theo ID.
-    """
-    return Department.objects.filter(id=dept_id).first()
+def get_department_by_id(dept_id: int) -> Optional[Department]:
+    return repo.get_by_id(dept_id)
 
-# Lấy Department theo code
-def get_department_by_code(code: str):
-    """
-    Trả về Department theo code.
-    """
-    return Department.objects.filter(code=code).first()
+def get_department_by_code(code: str) -> Optional[Department]:
+    return repo.get_by_code(code)
 
-# Lấy danh sách tất cả Department
-def list_all_departments():
-    """
-    Trả về danh sách tất cả Department, sắp xếp theo name.
-    """
-    return Department.objects.all().order_by("name")
+def list_all_departments() -> QuerySet[Department]:
+    return repo.list_all()

@@ -1,62 +1,29 @@
-from erp_the20.models import Department
+# -*- coding: utf-8 -*-
+"""
+Service layer cho Department.
+- Chứa validate UNIQUE code (theo lựa chọn A của bạn).
+- Repo chỉ thuần DB.
+"""
+from __future__ import annotations
+from typing import Dict, Any
+
 from django.core.exceptions import ValidationError
+from erp_the20.models import Department
+from erp_the20.repositories import department_repository as repo
 
-# ----------------------
-# Department Service
-# ----------------------
-
-def create_department(data: dict) -> Department:
-    """
-    Tạo mới một Department.
-    
-    Args:
-        data (dict): {"code": str, "name": str}
-        
-    Raises:
-        ValidationError: nếu code bị trùng
-        
-    Returns:
-        Department: object mới tạo
-    """
+def create_department(data: Dict[str, Any]) -> Department:
+    # Validate nghiệp vụ: code phải unique
     if Department.objects.filter(code=data["code"]).exists():
         raise ValidationError("Department code must be unique")
-    return Department.objects.create(**data)
+    return repo.create(data)
 
-
-def update_department(dept: Department, data: dict) -> Department:
-    """
-    Cập nhật thông tin Department.
-    
-    Args:
-        dept (Department): object cần update
-        data (dict): fields cần update {"code": str, "name": str}
-        
-    Raises:
-        ValidationError: nếu code mới bị trùng
-        
-    Returns:
-        Department: object đã update
-    """
+def update_department(dept: Department, data: Dict[str, Any]) -> Department:
+    # Validate nghiệp vụ khi đổi code
     if "code" in data and data["code"] != dept.code:
         if Department.objects.filter(code=data["code"]).exists():
             raise ValidationError("Department code must be unique")
-        dept.code = data["code"]
-
-    if "name" in data:
-        dept.name = data["name"]
-
-    dept.save()
-    return dept
-
+    allowed = {"code","name"}
+    return repo.save_fields(dept, data, allowed=allowed)
 
 def delete_department(dept: Department) -> None:
-    """
-    Xóa Department.
-    
-    Args:
-        dept (Department): object cần xóa
-        
-    Returns:
-        None
-    """
-    dept.delete()
+    repo.delete(dept)

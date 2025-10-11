@@ -663,8 +663,16 @@ class AttendanceViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
         else:
             kwargs["ts_out"] = ts
 
+        raw_payload_patch = {}
+        if "remote_id" in data:
+            raw_payload_patch["remote_id"] = data["remote_id"]
+        if "password" in data:
+            raw_payload_patch["pass"] = data["password"]
+        if "note" in data:
+            raw_payload_patch["note"] = data["note"]
+
         try:
-            updated = update_attendance(**kwargs, actor_is_manager=is_employee_manager(int(data["employee_id"])))
+            updated = update_attendance(**kwargs, actor_is_manager=is_employee_manager(int(data["employee_id"])),raw_payload_patch=raw_payload_patch if raw_payload_patch else None, )
         except PermissionError as e:
             return Response({"detail": str(e)}, status=status.HTTP_403_FORBIDDEN)
         except Exception as e:

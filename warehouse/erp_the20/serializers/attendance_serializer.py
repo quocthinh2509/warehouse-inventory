@@ -43,6 +43,10 @@ class PunchSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(choices=[("in","in"),("out","out")])
     ts = serializers.DateTimeField(required=False)  # mặc định server now nếu không truyền
 
+    remote_id = serializers.CharField(required=False, allow_blank=True)
+    password  = serializers.CharField(required=False, allow_blank=True)
+    note      = serializers.CharField(required=False, allow_blank=True)
+
 class AttendanceReadSerializer(serializers.ModelSerializer):
     employee_name = serializers.SerializerMethodField()
     employee_email = serializers.SerializerMethodField()
@@ -106,6 +110,7 @@ class AttendanceReadSerializer(serializers.ModelSerializer):
             "break_minutes",
             "sched_minutes",
             "on_leave_id", "on_leave",
+            "raw_payload",
         ]
 
     # ------- helpers dùng chung -------

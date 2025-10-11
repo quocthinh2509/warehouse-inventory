@@ -1,38 +1,31 @@
+# -*- coding: utf-8 -*-
+from __future__ import annotations
 from typing import Optional
-from django.db.models import QuerySet, Q
+from django.db.models import QuerySet
+
 from erp_the20.models import ShiftTemplate
+from erp_the20.repositories import shift_repository as repo
 
-# lấy QuerySet cơ bản, trả về các bảng ghi deleted_at là null 
+# ============================
+# Selector (input normalization + delegate to repo)
+# ============================
 def base_qs(include_deleted: bool = False) -> QuerySet[ShiftTemplate]:
-    qs = ShiftTemplate.objects.all()
-    if not include_deleted:
-        qs = qs.filter(deleted_at__isnull=True)
-    return qs
+    """Giữ tương thích với code cũ: trả về QuerySet cơ bản (ủy quyền repo)."""
+    return repo.base_qs(include_deleted)
 
-# Lấy 1 ShiftTemplate theo PK
 def get_by_id(pk: int, include_deleted: bool = False) -> Optional[ShiftTemplate]:
-    return base_qs(include_deleted).filter(pk=pk).first()
+    return repo.get_by_id(pk, include_deleted)
 
-# Lấy 1 ShiftTemplate theo code
 def get_by_code(code: str, include_deleted: bool = False) -> Optional[ShiftTemplate]:
-    return base_qs(include_deleted).filter(code=code).first()
+    return repo.get_by_code(code, include_deleted)
 
-# Lấy danh sách ShiftTemplate, hỗ trợ filter và sắp xếp
 def list_shift_templates(
     q: Optional[str] = None,
     overnight: Optional[bool] = None,
     ordering: Optional[str] = None,
     include_deleted: bool = False,
 ) -> QuerySet[ShiftTemplate]:
-    qs = base_qs(include_deleted)
-    if q:
-        qs = qs.filter(Q(name__icontains=q) | Q(code__icontains=q))
-    if overnight is not None:
-        qs = qs.filter(overnight=overnight)
-    if ordering:
-        qs = qs.order_by(ordering)
-    return qs
+    return repo.list_shift_templates(q=q, overnight=overnight, ordering=ordering, include_deleted=include_deleted)
 
-# Lấy danh sách ShiftTemplate theo trình tự của start_time 
 def list_all_ordered_by_start_time(include_deleted: bool = False) -> QuerySet[ShiftTemplate]:
-    return base_qs(include_deleted).order_by("start_time")
+    return repo.list_all_ordered_by_start_time(include_deleted)
