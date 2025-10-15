@@ -5,6 +5,5 @@ __pycache__/
 staticfiles/ 
 media/ 
 warehouse/inventory/v1
-deploy.sh
 warehouse/db.sqlite3
 warehouse/dev.sh

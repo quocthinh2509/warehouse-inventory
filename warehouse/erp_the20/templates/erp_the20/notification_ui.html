@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ERP The20 • Thông báo</title>
+  <style>
+    :root{
+      --bg:#0f1115;--panel:#151922;--border:#2a3140;--text:#e6eefc;--muted:#8a93a6;--primary:#4f8cff;
+      --ok:#2ecc71;--warn:#f1c40f;--bad:#ff5c5c;--ink:#0f131a;--chip:#0c0f15
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Roboto}
+    .wrap{max-width:1200px;margin:26px auto;padding:0 16px}
+
+    /* Tabs */
+    .tabs{display:flex;gap:8px;margin-bottom:12px}
+    .tab-btn{padding:10px 14px;border:1px solid var(--border);background:var(--panel);color:var(--text);border-radius:10px;cursor:pointer}
+    .tab-btn.active{background:var(--primary);border-color:transparent;color:#fff}
+    .tab-panel{display:none}
+    .tab-panel.active{display:block}
+
+    /* Cards & layout */
+    .grid{display:grid;grid-template-columns:1.2fr .8fr;gap:16px}
+    .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px}
+    h1{margin:0 0 10px 0;font-size:1.25rem}
+    h2{margin:0 0 12px 0;font-size:1rem;color:var(--muted)}
+    label{display:block;margin:10px 0 6px;color:var(--muted);font-size:.9rem}
+    input,textarea,select,button{
+      width:100%;padding:10px 12px;background:var(--ink);border:1px solid var(--border);border-radius:8px;color:var(--text)
+    }
+    textarea{resize:vertical;min-height:120px}
+    button{cursor:pointer;background:var(--primary);border:none;color:#fff}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .row > *{flex:1}
+    .muted{color:var(--muted)}
+    .msg{margin-top:8px;color:#a9b4cc;font-size:.9rem}
+    .sep{height:1px;background:var(--border);margin:12px 0}
+
+    /* Inbox list */
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+    .toolbar .grow{flex:1}
+    .toolbar .shrink{flex:0 0 auto;width:auto}
+    .list{display:grid;gap:10px}
+    .notif{border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--ink)}
+    .notif h3{margin:0 0 6px 0;font-size:1rem}
+    .notif .meta{font-size:.82rem;color:#9aa6bf;display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+    .notif .payload{margin-top:8px;white-space:pre-wrap}
+    .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+
+    /* Pills / chips */
+    .pill{display:inline-flex;align-items:center;gap:6px;font-size:.75rem;border:1px solid var(--border);border-radius:999px;padding:2px 10px;background:var(--chip)}
+    .pill.ok{background:#12331f;color:#8fe9b8;border-color:#1d5a39}
+    .pill.warn{background:#2b2b16;color:#efe3a1;border-color:#6a5f2a}
+    .pill.bad{background:#3a1720;color:#ff9fb1;border-color:#6e2536}
+    .dot{width:8px;height:8px;border-radius:50%}
+    .dot.ok{background:#27ae60}
+    .dot.warn{background:#f1c40f}
+    .dot.bad{background:#ff5c5c}
+
+    /* Key-Value grid */
+    .kv{display:grid;grid-template-columns:140px 1fr;gap:6px 12px;margin-top:8px}
+    .kv .k{color:var(--muted)}
+
+    /* Tiny actions */
+    .tiny{font-size:.82rem}
+    .btn-ghost{background:transparent;border:1px dashed var(--border);color:var(--text)}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="inbox">📥 Thông báo</button>
+    <button class="tab-btn" data-tab="compose">📢 Gửi thông báo</button>
+  </div>
+
+  <!-- ===================== INBOX TAB ===================== -->
+  <div id="tab-inbox" class="tab-panel active">
+    <div class="card">
+      <h1>📥 Hộp thông báo</h1>
+      <div class="toolbar">
+        <div class="grow row">
+          <input id="filterUserId" placeholder="Lọc theo user_id (ví dụ: 117)"/>
+          <input id="searchTitle" placeholder="Tìm theo tiêu đề (client-side)"/>
+        </div>
+        <div class="row">
+          <select id="filterChannel" title="Kênh">
+            <option value="">Kênh: Tất cả</option>
+            <option value="INAPP">INAPP</option>
+            <option value="EMAIL">EMAIL</option>
+            <option value="LARK">LARK</option>
+          </select>
+          <select id="filterType" title="Object type">
+            <option value="">Loại: Tất cả</option>
+            <option value="proposal">proposal</option>
+            <option value="handover">handover</option>
+          </select>
+          <select id="filterDelivered" title="Trạng thái gửi">
+            <option value="">Trạng thái: Tất cả</option>
+            <option value="true">Đã gửi</option>
+            <option value="false">Chưa gửi</option>
+          </select>
+        </div>
+        <div class="row">
+          <button id="refreshBtn" class="shrink">Làm mới</button>
+          <button id="clearFiltersBtn" class="btn-ghost shrink">Xoá lọc</button>
+        </div>
+      </div>
+
+      <div id="inboxMsg" class="msg muted">Sử dụng nút “Làm mới” để tải danh sách.</div>
+      <div id="notifList" class="list"></div>
+
+      <div class="sep"></div>
+      <div class="row">
+        <button id="prevBtn" class="shrink" disabled>← Trang trước</button>
+        <div id="pageInfo" class="muted" style="flex:1;text-align:center"></div>
+        <button id="nextBtn" class="shrink" disabled>Trang sau →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== COMPOSE TAB ===================== -->
+  <div id="tab-compose" class="tab-panel">
+    <div class="card">
+      <h1>📢 Gửi thông báo nội bộ</h1>
+      <div class="row">
+        <div style="flex:1">
+          <label>Tiêu đề</label>
+          <input id="title" placeholder="VD: Cập nhật họp tuần này"/>
+        </div>
+        <div style="flex:1">
+          <label>Danh sách người nhận (IDs, cách nhau bằng dấu phẩy)</label>
+          <input id="recipients" placeholder="VD: 101, 117, 123"/>
+        </div>
+      </div>
+
+      <label>Nội dung (text)</label>
+      <textarea id="body" placeholder="Nhập nội dung thông báo..."></textarea>
+
+      <div class="row">
+        <label class="tiny" style="display:flex;align-items:center;gap:8px;flex:0 0 auto;width:auto;margin:0">
+          <input id="send_email" type="checkbox" style="width:auto"> Gửi kèm Email
+        </label>
+        <label class="tiny" style="display:flex;align-items:center;gap:8px;flex:0 0 auto;width:auto;margin:0">
+          <input id="send_lark" type="checkbox" style="width:auto"> Gửi kèm Lark
+        </label>
+      </div>
+      <div class="msg muted">Nếu bật Email/Lark, hệ thống sẽ tự dùng <b>tiêu đề = Title</b> và <b>nội dung = Body</b> (không cần nhập riêng).</div>
+
+      <div class="row">
+        <button id="sendBtn">Gửi thông báo</button>
+        <button id="previewBtn" class="btn-ghost">Xem JSON gửi</button>
+      </div>
+      <div id="sendMsg" class="msg"></div>
+      <pre id="previewBox" class="msg" style="display:none;white-space:pre-wrap"></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ================== CONFIG ==================
+  const API_LIST = '/the20/notifications/';        // GET
+  const API_SEND = '/the20/notifications/send/';   // POST
+
+  // ================== Helpers ==================
+  const $  = (s,r=document)=>r.querySelector(s);
+  const $$ = (s,r=document)=>Array.from(r.querySelectorAll(s));
+  const fmtDate = s=>{ if(!s) return ''; try{ const d=new Date(s); return d.toLocaleString(); }catch(_){ return s; } };
+  const esc = s => String(s).replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]||c));
+
+  const CHANNEL_MAP = {
+    0: 'INAPP', 1: 'EMAIL', 2: 'SMS', 3: 'LARK'
+  };
+
+  function badgeDelivered(n){
+    if(n.delivered === true)  return `<span class="pill ok"><span class="dot ok"></span> đã gửi</span>`;
+    if(n.delivered === false) return `<span class="pill warn"><span class="dot warn"></span> đang chờ</span>`;
+    return `<span class="pill warn"><span class="dot warn"></span> n/a</span>`;
+  }
+
+  function deriveChannel(n){
+    if(typeof n.channel_display !== 'undefined' && n.channel_display) return n.channel_display;
+    if(typeof n.channel === 'number') return CHANNEL_MAP[n.channel] || String(n.channel);
+    return 'INAPP';
+  }
+
+  function deriveBody(n){
+    if(!n.payload) return '';
+    const p = n.payload;
+    // Prefer human-readable fields
+    const t = p.body || p.text || p.message || '';
+    return t;
+  }
+
+  // ================== STATE (pagination aware) ==================
+  let currentPage = 1;
+  let nextUrl = null;
+  let prevUrl = null;
+  let lastData = []; // normalized array of notifications (for client-side filter)
+
+  // ================== RENDER LIST ==================
+  function renderList() {
+    const list = $('#notifList');
+    const qTitle = $('#searchTitle').value.trim().toLowerCase();
+    const qCh = $('#filterChannel').value;
+    const qType = $('#filterType').value;
+    const qDelivered = $('#filterDelivered').value;
+
+    let filtered = lastData.slice();
+    if(qTitle) filtered = filtered.filter(x => (x.title||'').toLowerCase().includes(qTitle));
+    if(qCh)    filtered = filtered.filter(x => (deriveChannel(x) === qCh));
+    if(qType)  filtered = filtered.filter(x => (x.object_type||'') === qType);
+    if(qDelivered) filtered = filtered.filter(x => String(!!x.delivered) === (qDelivered === 'true'));
+
+    list.innerHTML = '';
+    if (filtered.length === 0) {
+      $('#inboxMsg').textContent = 'Không có thông báo phù hợp.';
+      return;
+    }
+    $('#inboxMsg').textContent = `Tổng ${filtered.length} thông báo (đang hiển thị theo trang của server).`;
+
+    for (const n of filtered) {
+      const recipients = Array.isArray(n.recipients) ? n.recipients.join(', ') : '';
+      const bodyText = deriveBody(n);
+      const chan = deriveChannel(n);
+
+      const errorPill = (n.last_error && String(n.last_error).trim())
+        ? `<span class="pill bad" title="${esc(n.last_error)}"><span class="dot bad"></span> lỗi</span>`
+        : '';
+
+      const header = `
+        <div class="row" style="align-items:flex-start">
+          <h3 style="flex:1">${esc(n.title||'')}</h3>
+          <div class="row" style="flex:0 0 auto;gap:6px">
+            ${badgeDelivered(n)}
+            <span class="pill">${esc(chan)}</span>
+            ${errorPill}
+          </div>
+        </div>`;
+
+      const kv = `
+        <div class="kv tiny">
+          <div class="k">ID</div><div>#${n.id}</div>
+          <div class="k">Đối tượng</div><div>${esc(n.object_type||'-')}${n.object_id?` <span class="mono">#${esc(n.object_id)}</span>`:''}</div>
+          <div class="k">Người nhận</div><div>${recipients?`[${esc(recipients)}]`:'-'}</div>
+          <div class="k">to_user</div><div>${n.to_user ?? '-'}</div>
+          <div class="k">attempts</div><div>${n.attempt_count ?? 0}</div>
+          <div class="k">created</div><div>${esc(fmtDate(n.created_at))}</div>
+          <div class="k">delivered</div><div>${esc(fmtDate(n.delivered_at))}</div>
+        </div>`;
+
+      const payloadBlock = bodyText
+        ? `<div class="payload">${esc(bodyText)}</div>`
+        : '';
+
+      const html = `
+        <div class="notif">
+          ${header}
+          ${payloadBlock}
+          <div class="meta">${kv}</div>
+        </div>`;
+
+      list.insertAdjacentHTML('beforeend', html);
+    }
+  }
+
+  // ================== LOAD LIST ==================
+  async function loadList(pageUrl=null) {
+    $('#inboxMsg').textContent = 'Đang tải...';
+    const userId = $('#filterUserId').value.trim();
+    let url = pageUrl || API_LIST;
+    if (!pageUrl && userId) {
+      const p = new URLSearchParams({ user_id: userId });
+      url = `${API_LIST}?${p.toString()}`;
+    }
+    try{
+      const res = await fetch(url, {headers:{'accept':'application/json'}});
+      if(!res.ok){
+        const err = await res.text().catch(()=>res.statusText);
+        $('#inboxMsg').textContent = `❌ Lỗi tải danh sách: ${err}`;
+        $('#notifList').innerHTML = '';
+        return;
+      }
+      const data = await res.json();
+      // DRF có thể trả về {results, next, previous} hoặc 1 mảng thuần
+      const arr = Array.isArray(data) ? data : (data.results || []);
+      lastData = arr;
+
+      // pagination info
+      nextUrl = (data && data.next) ? data.next : null;
+      prevUrl = (data && data.previous) ? data.previous : null;
+      $('#nextBtn').disabled = !nextUrl;
+      $('#prevBtn').disabled = !prevUrl;
+      $('#pageInfo').textContent = (nextUrl || prevUrl) ? `Trang hiện tại: ${currentPage}` : '';
+
+      renderList();
+    }catch(e){
+      $('#inboxMsg').textContent = '❌ Lỗi kết nối khi tải danh sách.';
+      $('#notifList').innerHTML = '';
+    }
+  }
+
+  // ================== SEND ==================
+  function buildPayload(){
+    const title = $('#title').value.trim();
+    const recips = $('#recipients').value.split(',').map(x=>parseInt(x.trim(),10)).filter(x=>!Number.isNaN(x));
+    const body = $('#body').value.trim();
+
+    const sendEmail = $('#send_email')?.checked || false;
+    const sendLark  = $('#send_lark')?.checked  || false;
+
+    const payload = { title, recipients: recips, payload: {} };
+    if(body) payload.payload.body = body;
+
+    // Tự động suy diễn nội dung kênh phụ dựa trên title/body
+    if(sendEmail){
+      payload.email_subject = title || '[ERP] Thông báo';
+      payload.email_text    = body || title || '[ERP] Thông báo';
+    }
+    if(sendLark){
+      payload.lark_text = body || title || '[ERP] Thông báo';
+    }
+    return payload;
+  }
+
+  async function doSend(){
+    const payload = buildPayload();
+    if(!payload.title){ $('#sendMsg').textContent='⚠️ Nhập tiêu đề'; return; }
+
+    $('#sendBtn').disabled = true;
+    $('#sendMsg').textContent = 'Đang gửi...';
+    try{
+      const res = await fetch(API_SEND,{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(()=>({}));
+      if(res.ok){
+        $('#sendMsg').textContent = '✅ Gửi thành công';
+        // refresh inbox để thấy thông báo vừa tạo (nếu user_id phù hợp)
+        loadList();
+      }else{
+        $('#sendMsg').textContent = '❌ Lỗi gửi: ' + (data.detail || JSON.stringify(data));
+      }
+    }catch(e){
+      $('#sendMsg').textContent = '❌ Lỗi kết nối khi gửi.';
+    }finally{
+      $('#sendBtn').disabled = false;
+    }
+  }
+
+  // ================== TABS ==================
+  function switchTab(name){
+    $$('.tab-btn').forEach(b=>b.classList.toggle('active', b.dataset.tab===name));
+    $('#tab-inbox').classList.toggle('active', name==='inbox');
+    $('#tab-compose').classList.toggle('active', name==='compose');
+  }
+
+  // ================== BINDINGS ==================
+  // Tabs
+  $$('.tab-btn').forEach(btn=> btn.addEventListener('click', ()=> switchTab(btn.dataset.tab)) );
+
+  // Inbox
+  $('#refreshBtn').onclick = ()=>{ currentPage=1; loadList(); };
+  $('#nextBtn').onclick = ()=>{ if(nextUrl){ currentPage++; loadList(nextUrl); } };
+  $('#prevBtn').onclick = ()=>{ if(prevUrl){ currentPage=Math.max(1,currentPage-1); loadList(prevUrl); } };
+  $('#searchTitle').oninput = ()=> renderList();
+  $('#filterChannel').onchange = ()=> renderList();
+  $('#filterType').onchange = ()=> renderList();
+  $('#filterDelivered').onchange = ()=> renderList();
+  $('#clearFiltersBtn').onclick = ()=>{
+    $('#filterUserId').value='';
+    $('#searchTitle').value='';
+    $('#filterChannel').value='';
+    $('#filterType').value='';
+    $('#filterDelivered').value='';
+    renderList();
+  };
+
+  // Compose
+  $('#sendBtn').onclick = doSend;
+  $('#previewBtn').onclick = ()=>{
+    const payload = buildPayload();
+    const box = $('#previewBox');
+    box.textContent = JSON.stringify(payload, null, 2);
+    box.style.display = 'block';
+  };
+
+  // Auto boot
+  loadList();
+</script>
+</body>
+</html>

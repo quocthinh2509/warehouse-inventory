@@ -11,5 +11,11 @@ urlpatterns = [
     path("shifts/", include("erp_the20.urls.shift_urls")),
     path("attendance/", include("erp_the20.urls.attendance_urls")), 
     path("leave/", include("erp_the20.urls.leave_urls")),
-    # path("attendanceV2/", include("erp_the20.urls.attendanceV2_urls")),
+   
+    
+    path("notifications/", include("erp_the20.urls.notification_urls")),
+    path("proposals/", include("erp_the20.urls.proposal_urls")),
+    path("profile/", include("erp_the20.urls.profile_urls")),
+    path("handover/", include("erp_the20.urls.handover_urls")),
+
 ]

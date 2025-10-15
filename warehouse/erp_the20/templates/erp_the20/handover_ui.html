@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>ERP The20 • Bàn giao (Simple Sheet)</title>
+<style>
+  :root{ --bg:#0f1115; --panel:#151922; --ink:#0f131a; --text:#e6eefc; --muted:#8a93a6; --br:#2a3140; --blue:#4f8cff; --red:#ff4f4f; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,Segoe UI,Roboto}
+  .wrap{max-width:1200px;margin:24px auto;padding:0 12px 48px}
+  header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  h1{margin:0;font-size:18px}
+  .btn{padding:8px 10px;border-radius:8px;border:1px solid var(--br);background:var(--blue);color:#fff;cursor:pointer}
+  .btn.ghost{background:transparent;color:var(--text)}
+  .btn.min{padding:6px 8px}
+  .btn.delete{background:var(--red)}
+  .muted{color:var(--muted)}
+
+  /* Sheet table */
+  .sheet{background:var(--panel);border:1px solid var(--br);border-radius:10px;overflow:hidden}
+  table{width:100%;border-collapse:separate;border-spacing:0}
+  thead th{position:sticky;top:0;background:#121622;padding:10px 12px;text-align:left;border-bottom:1px solid var(--br);font-weight:600;color:var(--muted)}
+  tbody td{padding:10px 12px;border-bottom:1px solid #1b2230;vertical-align:middle}
+  tbody tr:nth-child(even){background:rgba(255,255,255,0.02)}
+  .id{font-variant-numeric:tabular-nums;white-space:nowrap}
+
+  /* Caret toggle */
+  .caret{margin-left:6px;width:28px;height:28px;border-radius:6px;border:1px solid var(--br);background:#0b0f16;color:var(--text);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+  .caret[aria-expanded="true"]{transform:rotate(180deg)}
+
+  /* Items grid (Excel-like) */
+  .items-wrap{margin-top:6px}
+  .items-grid{display:grid;gap:6px}
+  .items-head, .items-row, .items-addrow{
+    display:grid;gap:8px;align-items:center;
+    grid-template-columns: 2fr 2fr 120px 120px 140px; /* Title | Detail | Assignee | Status | Actions */
+  }
+  .items-head{color:var(--muted);font-size:12px}
+  .items-row{padding:6px 8px;border:1px dashed var(--br);border-radius:8px;background:#0b0f16}
+  .pill{font-size:12px;padding:2px 8px;border:1px solid var(--br);border-radius:999px;cursor:pointer;display:inline-block}
+  .pill.done{background:#13281d}
+  .pill.pending{background:#2b2b16}
+  .row-actions{display:flex;gap:6px;justify-content:flex-end}
+  .add-footer{display:flex;justify-content:flex-end;margin-top:6px}
+  .add-inline-btn{border:1px dashed var(--br);background:#0b0f16;color:var(--text)}
+
+  /* Modal */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:50}
+  .modal{width:520px;max-width:92vw;background:var(--panel);border:1px solid var(--br);border-radius:12px;padding:14px}
+  .modal h3{margin:0 0 8px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  input,select,textarea{padding:8px;border-radius:8px;border:1px solid var(--br);background:#0b0f16;color:var(--text)}
+  textarea{width:100%;min-height:70px}
+  .empty{padding:16px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>📋 Bàn giao – giao diện như Google Sheet</h1>
+    <div class="flex">
+      <button id="btnRefresh" class="btn ghost">Làm mới</button>
+      <button id="btnOpenCreate" class="btn">Tạo bàn giao</button>
+    </div>
+  </header>
+
+  <!-- Filters -->
+  <div class="row" style="margin:8px 0">
+    <input id="flt_emp" placeholder="Employee ID" style="width:140px">
+    <input id="flt_mgr" placeholder="Manager ID" style="width:140px">
+    <input id="flt_recv" placeholder="Receiver ID" style="width:140px">
+    <select id="flt_status" style="width:160px">
+      <option value="">Tất cả trạng thái</option>
+      <option value="0">OPEN</option>
+      <option value="1">IN_PROGRESS</option>
+      <option value="2">DONE</option>
+      <option value="3">CANCELLED</option>
+    </select>
+    <button id="btnApply" class="btn">Lọc</button>
+    <button id="btnClear" class="btn ghost">Xóa</button>
+  </div>
+
+  <div class="sheet">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:120px">#</th>
+          <th>Task / Note</th>
+          <th style="width:120px">Employee</th>
+          <th style="width:120px">Manager</th>
+          <th style="width:120px">Receiver</th>
+          <th style="width:140px">Due date</th>
+          <th style="width:160px">Status</th>
+          <th style="width:140px">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="tbody">
+        <tr><td colspan="8" class="empty">Đang tải…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Modal tạo/edit handover -->
+<div id="ovl" class="overlay">
+  <div class="modal">
+    <h3 id="modalTitle">Tạo bàn giao</h3>
+    <div class="row" style="margin-bottom:8px">
+      <input id="emp" placeholder="Employee ID" style="width:140px">
+      <input id="mgr" placeholder="Manager ID" style="width:140px">
+      <input id="recv" placeholder="Receiver ID" style="width:140px">
+      <input id="due" type="date" style="width:160px">
+    </div>
+    <textarea id="note" placeholder="Ghi chú (tuỳ chọn)"></textarea>
+    <div class="row" style="justify-content:flex-end;margin-top:8px">
+      <button id="btnCloseCreate" class="btn ghost">Đóng</button>
+      <button id="btnCreate" class="btn">Tạo</button>
+    </div>
+    <div id="msgCreate" class="muted" style="margin-top:6px"></div>
+  </div>
+</div>
+
+<script>
+// ======== CONFIG ========
+const API_BASE = '/the20/handover/';
+const API_ITEM_STATUS = '/the20/handover/items/set-status/';
+const $ = s=>document.querySelector(s);
+
+// ======== HELPERS ========
+function normList(d){ if(Array.isArray(d)) return d; if(d && Array.isArray(d.results)) return d.results; return []; }
+function esc(s){ return (s??'').toString().replace(/</g,'&lt;'); }
+
+// ======== ITEM RENDER (Excel-like) ========
+function itemRowHTML(it){
+  const pillCls = it.status===1? 'pill done' : 'pill pending';
+  const pillTxt = it.status===1? 'DONE' : 'PENDING';
+  return `
+    <div class="items-row" id="item_${it.id}">
+      <div>
+        <span class="${pillCls}" title="Bấm để chuyển trạng thái" onclick="toggleItem(${it.id}, ${it.status})">${pillTxt}</span>
+        <span style="margin-left:8px">${esc(it.title||'')}</span>
+      </div>
+      <div>${esc(it.detail||'')}</div>
+      <div>${it.assignee_id ?? '-'}</div>
+      <div>
+        <select onchange="setItemStatus(${it.id}, this.value)">
+          <option value="0" ${it.status===0?'selected':''}>PENDING</option>
+          <option value="1" ${it.status===1?'selected':''}>DONE</option>
+        </select>
+      </div>
+      <div class="row-actions">
+        <button class="btn min ghost" onclick="openAddForm(${it.handover || 'null'}, ${it.id})">+ Dòng dưới</button>
+      </div>
+    </div>`;
+}
+
+function itemsBlock(h){
+  const items = (h.items||h.items_detail||h.handover_items||[]);
+  const rows = items.map(itemRowHTML).join('') || `<div class="muted">Chưa có item</div>`;
+  return `
+    <div class="items-wrap">
+      <div class="items-head">
+        <div>Title</div><div>Detail</div><div>Assignee</div><div>Status</div><div>Actions</div>
+      </div>
+      <div class="items-grid" id="items_${h.id}">
+        ${rows}
+      </div>
+      <div class="add-footer">
+        <button class="btn min add-inline-btn" onclick="openAddForm(${h.id})">+ Thêm dòng</button>
+      </div>
+    </div>`;
+}
+
+// ======== HANDOVER TABLE RENDER ========
+function handoverRow(h){
+  const id = h.id;
+  const statusSelect = `
+    <select onchange="updateStatus(${id}, this.value)">
+      <option value="0" ${h.status===0?'selected':''}>Open</option>
+      <option value="1" ${h.status===1?'selected':''}>In Progress</option>
+      <option value="2" ${h.status===2?'selected':''}>Done</option>
+      <option value="3" ${h.status===3?'selected':''}>Cancelled</option>
+    </select>`;
+
+  return `
+    <tr>
+      <td class="id">#${id} <button class="caret" aria-expanded="false" aria-controls="row_items_${id}" onclick="toggleItems(${id}, this)">▾</button></td>
+      <td>${esc(h.title||h.note||'(Không có tiêu đề)')}</td>
+      <td>${h.employee_id??'-'}</td>
+      <td>${h.manager_id??'-'}</td>
+      <td>${h.receiver_employee_id??'-'}</td>
+      <td>${h.due_date||'-'}</td>
+      <td>${statusSelect}</td>
+      <td>
+        <div class="row-actions">
+          <button class="btn min ghost" onclick="openEditHandover(${id})">Sửa</button>
+          <button class="btn min delete" onclick="deleteHandover(${id})">Xóa</button>
+        </div>
+      </td>
+    </tr>
+    <tr class="items-row" id="row_items_${id}" style="display:none">
+      <td></td>
+      <td colspan="7">
+        ${itemsBlock(h)}
+      </td>
+    </tr>`;
+}
+
+// ======== INLINE ADD FORM ========
+function buildAddForm(handoverId){
+  const el = document.createElement('div');
+  el.className = 'items-addrow';
+  el.innerHTML = `
+    <input id="new_title_${handoverId}" placeholder="Title">
+    <input id="new_detail_${handoverId}" placeholder="Detail">
+    <input id="new_assignee_${handoverId}" placeholder="Assignee ID" inputmode="numeric" pattern="[0-9]*">
+    <select id="new_status_${handoverId}">
+      <option value="0" selected>PENDING</option>
+      <option value="1">DONE</option>
+    </select>
+    <div class="row-actions">
+      <button class="btn min" onclick="saveNewItem(${handoverId})">Save</button>
+      <button class="btn min ghost" onclick="cancelNewItem(${handoverId})">Cancel</button>
+    </div>
+  `;
+  el.dataset.kind = 'addform';
+  return el;
+}
+
+function openAddForm(handoverId, afterItemId=null){
+  cancelNewItem(handoverId);
+  const container = document.getElementById(`items_${handoverId}`);
+  if(!container) return;
+  const form = buildAddForm(handoverId);
+  if(afterItemId){
+    const anchor = document.getElementById(`item_${afterItemId}`);
+    if(anchor && anchor.parentElement === container){
+      anchor.insertAdjacentElement('afterend', form);
+    }else{
+      container.appendChild(form);
+    }
+  }else{
+    container.appendChild(form);
+  }
+  const ip = document.getElementById(`new_title_${handoverId}`);
+  if(ip) ip.focus();
+}
+
+window.openAddForm = openAddForm;
+window.addItem = openAddForm;
+
+function cancelNewItem(handoverId){
+  const container = document.getElementById(`items_${handoverId}`);
+  if(!container) return;
+  const form = Array.from(container.children).find(ch => ch.dataset && ch.dataset.kind === 'addform');
+  if(form) form.remove();
+}
+window.cancelNewItem = cancelNewItem;
+
+async function saveNewItem(handoverId){
+  const title = (document.getElementById(`new_title_${handoverId}`)?.value || '').trim();
+  const detail = (document.getElementById(`new_detail_${handoverId}`)?.value || '').trim();
+  const assigneeRaw = (document.getElementById(`new_assignee_${handoverId}`)?.value || '').trim();
+  if(!title){ alert('Nhập Title'); return; }
+  const assignee_id = assigneeRaw ? parseInt(assigneeRaw, 10) : null;
+  const r = await fetch(`${API_BASE}${handoverId}/add_item/`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({title, detail, assignee_id})
+  });
+  if(!r.ok){
+    alert('Thêm item thất bại');
+    return;
+  }
+  cancelNewItem(handoverId);
+  await loadSheet();
+}
+window.saveNewItem = saveNewItem;
+
+// ======== LOAD TABLE ========
+async function loadSheet(){
+  const qs = new URLSearchParams();
+  if($('#flt_emp').value) qs.set('employee_id',$('#flt_emp').value.trim());
+  if($('#flt_mgr').value) qs.set('manager_id',$('#flt_mgr').value.trim());
+  if($('#flt_recv').value) qs.set('receiver_employee_id',$('#flt_recv').value.trim());
+  if($('#flt_status').value!=='') qs.set('status',$('#flt_status').value);
+  const url = qs.toString() ? `${API_BASE}?${qs.toString()}` : API_BASE;
+
+  $('#tbody').innerHTML = '<tr><td colspan="8" class="empty">Đang tải…</td></tr>';
+
+  const res = await fetch(url, {headers:{'Accept':'application/json'}, cache:'no-store'});
+  if(!res.ok){ $('#tbody').innerHTML = '<tr><td colspan="8" class="empty">Không tải được dữ liệu</td></tr>'; return; }
+  const arr = normList(await res.json());
+  $('#tbody').innerHTML = arr.length? arr.map(handoverRow).join('') : '<tr><td colspan="8" class="empty">Trống</td></tr>';
+}
+
+// ======== STATUS CHANGES ========
+async function updateStatus(id, val){
+  if(val===''||val==null) return;
+  const status=parseInt(val,10);
+  await fetch(`${API_BASE}${id}/`, {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({status})});
+  loadSheet();
+}
+window.updateStatus = updateStatus;
+
+function toggleItems(id, btn){
+  const tr = document.getElementById(`row_items_${id}`);
+  if(!tr) return;
+  const show = (tr.style.display==='none'||!tr.style.display);
+  tr.style.display = show ? 'table-row' : 'none';
+  if(btn){ btn.setAttribute('aria-expanded', show? 'true':'false'); }
+}
+window.toggleItems = toggleItems;
+
+async function toggleItem(itemId, cur){
+  const next = cur===1?0:1;
+  const r = await fetch(API_ITEM_STATUS, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({item_id:itemId, status:next})});
+  if(r.ok) loadSheet();
+}
+window.toggleItem = toggleItem;
+
+async function setItemStatus(itemId, val){
+  const status = parseInt(val,10);
+  const r = await fetch(API_ITEM_STATUS, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({item_id:itemId, status})});
+  if(r.ok) loadSheet();
+}
+window.setItemStatus = setItemStatus;
+
+// ======== CREATE/EDIT/DELETE HANDOVER ========
+function resetModal(){
+  $('#modalTitle').textContent = 'Tạo bàn giao';
+  $('#emp').value = '';
+  $('#mgr').value = '';
+  $('#recv').value = '';
+  $('#due').value = '';
+  $('#note').value = '';
+  $('#msgCreate').textContent = '';
+  $('#btnCreate').textContent = 'Tạo';
+  $('#btnCreate').onclick = createHandover;
+}
+
+async function openEditHandover(id){
+  const res = await fetch(`${API_BASE}${id}/`, {headers:{'Accept':'application/json'}});
+  if(!res.ok){ alert('Không tải được dữ liệu'); return; }
+  const h = await res.json();
+  
+  $('#modalTitle').textContent = `Sửa bàn giao #${id}`;
+  $('#emp').value = h.employee_id || '';
+  $('#mgr').value = h.manager_id || '';
+  $('#recv').value = h.receiver_employee_id || '';
+  $('#due').value = h.due_date || '';
+  $('#note').value = h.note || '';
+  $('#msgCreate').textContent = '';
+  $('#btnCreate').textContent = 'Cập nhật';
+  $('#btnCreate').onclick = () => updateHandover(id);
+  $('#ovl').style.display = 'flex';
+}
+
+async function updateHandover(id){
+  const payload = {
+    employee_id: $('#emp').value ? parseInt($('#emp').value, 10) : null,
+    manager_id: $('#mgr').value ? parseInt($('#mgr').value, 10) : null,
+    receiver_employee_id: $('#recv').value ? parseInt($('#recv').value, 10) : null,
+    due_date: $('#due').value || null,
+    note: $('#note').value || ''
+  };
+  if(!payload.employee_id){ $('#msgCreate').textContent='⚠️ Cần Employee ID'; return; }
+  const r = await fetch(`${API_BASE}${id}/`, {
+    method:'PUT', 
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+  $('#msgCreate').textContent = r.ok ? '✅ Cập nhật thành công' : '❌ Lỗi cập nhật';
+  if(r.ok){ $('#ovl').style.display='none'; loadSheet(); }
+}
+
+async function deleteHandover(id){
+  if(!confirm(`Xác nhận xóa bàn giao #${id}?`)) return;
+  const r = await fetch(`${API_BASE}${id}/`, {
+    method:'DELETE',
+    headers:{'Content-Type':'application/json'}
+  });
+  if(r.ok || r.status === 204){ loadSheet(); }
+  else { alert('Xóa thất bại'); }
+}
+
+async function createHandover(){
+  const payload = {
+    employee_id: $('#emp').value ? parseInt($('#emp').value, 10) : null,
+    manager_id: $('#mgr').value ? parseInt($('#mgr').value, 10) : null,
+    receiver_employee_id: $('#recv').value ? parseInt($('#recv').value, 10) : null,
+    due_date: $('#due').value || null,
+    note: $('#note').value || ''
+  };
+  if(!payload.employee_id){ $('#msgCreate').textContent='⚠️ Cần Employee ID'; return; }
+  const r = await fetch(API_BASE, {
+    method:'POST', 
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+  $('#msgCreate').textContent = r.ok ? '✅ Tạo thành công' : '❌ Lỗi tạo';
+  if(r.ok){ $('#ovl').style.display='none'; loadSheet(); }
+}
+
+// ======== EVENT BINDINGS ========
+$('#btnOpenCreate').onclick = () => { resetModal(); $('#ovl').style.display='flex'; };
+$('#btnCloseCreate').onclick = () => { $('#ovl').style.display='none'; };
+$('#btnApply').onclick = loadSheet;
+$('#btnClear').onclick = () => { ['#flt_emp','#flt_mgr','#flt_recv','#flt_status'].forEach(s=>$(s).value=''); loadSheet(); };
+$('#btnRefresh').onclick = loadSheet;
+
+document.addEventListener('DOMContentLoaded', loadSheet);
+</script>
+</body>
+</html>

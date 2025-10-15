@@ -11,6 +11,14 @@ from django.core.exceptions import ValidationError
 from erp_the20.models import Position
 from erp_the20.repositories import position_repository as repo
 
+
+_ALLOWED_FIELDS = {
+    "full_name","cccd","date_of_birth","address","first_day_in_job","email",
+    "doc_link","picture_link","offer_content","salary","degree","old_company",
+    "tax_code","bhxh","car","temporary_address","phone","emergency_contact","emergency_phone","note"
+}
+
+
 def create_position(data: Dict[str, Any]) -> Position:
     # Validate nghiệp vụ: code phải unique
     if Position.objects.filter(code=data["code"]).exists():
@@ -27,3 +35,8 @@ def update_position(pos: Position, data: Dict[str, Any]) -> Position:
 
 def delete_position(pos: Position) -> None:
     repo.delete(pos)
+
+
+def upsert(user_id: int, payload: dict):
+    data = {k: v for k, v in payload.items() if k in _ALLOWED_FIELDS}
+    return repo.save_profile(user_id, **data)

@@ -22,4 +22,8 @@ urlpatterns = [
         TemplateView.as_view(template_name="erp_the20/leave_manager.html"),
         name="leave-manager-ui",
         ),
+    path("ui/notifications/", TemplateView.as_view(template_name="erp_the20/notification_ui.html"), name="notification-ui"),
+    path("ui/profile/", TemplateView.as_view(template_name="erp_the20/profile_ui.html"), name="profile-ui"),
+    path("ui/proposals/", TemplateView.as_view(template_name="erp_the20/proposal_ui.html"), name="proposal-ui"),
+    path("ui/handovers/", TemplateView.as_view(template_name="erp_the20/handover_ui.html"), name="handover-ui"),
 ]

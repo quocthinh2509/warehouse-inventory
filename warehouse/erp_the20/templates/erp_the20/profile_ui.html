@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ERP The20 • Hồ sơ nhân viên</title>
+<style>
+  :root{
+    --bg:#0f1115;--panel:#151922;--ink:#0f131a;--border:#2a3140;--text:#e6eefc;--muted:#8a93a6;--primary:#4f8cff;--ok:#22c55e;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--text);font-family:system-ui;margin:0}
+  .wrap{max-width:1100px;margin:32px auto;padding:0 16px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px}
+  h1{margin:0 0 12px 0;font-size:1.3rem}
+  .grid{display:grid;gap:10px;grid-template-columns:repeat(2,1fr)}
+  label{display:block;margin-top:2px;color:var(--muted);font-size:.9rem}
+  input,textarea,select{width:100%;padding:8px 10px;background:#0f131a;border:1px solid var(--border);border-radius:8px;color:var(--text)}
+  textarea{resize:vertical}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  button{padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--primary);color:#fff;cursor:pointer}
+  .btn{background:var(--primary)}
+  .btn.dark{background:#2c3e50}
+  .btn.ok{background:var(--ok)}
+  .muted{color:var(--muted)}
+  .tabs{display:flex;gap:8px;margin-bottom:12px}
+  .tab{padding:8px 12px;border:1px solid var(--border);border-radius:999px;cursor:pointer;background:#0f131a}
+  .tab.active{background:var(--primary);color:#fff;border-color:transparent}
+  .hidden{display:none}
+  table{width:100%;border-collapse:collapse;border:1px solid var(--border)}
+  th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top;font-size:.95rem}
+  thead th{position:sticky;top:0;background:#101520;z-index:1}
+  .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  .toolbar input{max-width:280px}
+  .pager{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:10px}
+  .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#0f131a;border:1px solid var(--border);font-size:.85rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" data-tab="profile">👤 Hồ sơ cá nhân</div>
+    <div class="tab" data-tab="dashboard">📊 Dashboard quản lý</div>
+  </div>
+
+  <!-- PROFILE CARD -->
+  <div id="tab_profile" class="card">
+    <h1>👤 Hồ sơ nhân viên</h1>
+    <div class="row">
+      <div style="flex:1">
+        <label>user_id</label>
+        <input id="user_id" placeholder="VD: 117">
+      </div>
+      <div class="row" style="flex:1;justify-content:flex-end;gap:8px">
+        <button id="btnLoad" class="btn dark">Load</button>
+        <button id="btnSave" class="btn">💾 Lưu</button>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-top:10px">
+      <div><label>Họ tên</label><input id="full_name"></div>
+      <div><label>Email</label><input id="email"></div>
+
+      <div><label>CCCD</label><input id="cccd"></div>
+      <div><label>Ngày sinh</label><input id="date_of_birth" type="date"></div>
+
+      <div><label>Địa chỉ thường trú</label><input id="address"></div>
+      <div><label>Địa chỉ tạm trú</label><input id="temporary_address"></div>
+
+      <div><label>Ngày vào công ty</label><input id="first_day_in_job" type="date"></div>
+      <div><label>Mức lương hiện tại</label><input id="salary" type="number" step="0.01"></div>
+
+      <div><label>Số điện thoại</label><input id="phone"></div>
+      <div><label>Liên hệ khẩn cấp (Tên)</label><input id="emergency_contact"></div>
+
+      <div><label>Điện thoại khẩn cấp</label><input id="emergency_phone"></div>
+      <div><label>Bằng cấp</label><input id="degree"></div>
+
+      <div><label>Công ty cũ</label><input id="old_company"></div>
+      <div><label>Mã số thuế</label><input id="tax_code"></div>
+
+      <div><label>BHXH</label><input id="bhxh"></div>
+      <div><label>Xe gửi tại công ty (loại/số/năm SX)</label><input id="car"></div>
+
+      <div><label>Link hồ sơ (CV/HĐ)</label><input id="doc_link"></div>
+      <div><label>Link ảnh</label><input id="picture_link"></div>
+
+      <div style="grid-column:1/-1">
+        <label>Nội dung Offer</label><textarea id="offer_content" rows="3"></textarea>
+      </div>
+      <div style="grid-column:1/-1">
+        <label>Ghi chú</label><textarea id="note" rows="3"></textarea>
+      </div>
+    </div>
+
+    <div id="msg" class="muted" style="margin-top:10px"></div>
+  </div>
+
+  <!-- DASHBOARD CARD -->
+  <div id="tab_dashboard" class="card hidden">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <h1 style="margin:0">📊 Dashboard quản lý – Danh sách nhân viên</h1>
+      <span id="sum" class="pill">Tổng: 0</span>
+    </div>
+
+    <div class="toolbar">
+      <input id="q" placeholder="Tìm theo Tên/Email/Phone/CCCD...">
+      <select id="page_size">
+        <option value="20">20 / trang</option>
+        <option value="50" selected>50 / trang</option>
+        <option value="100">100 / trang</option>
+        <option value="200">200 / trang</option>
+      </select>
+      <button id="btnSearch" class="btn dark">Tìm</button>
+      <button id="btnExport" class="btn ok">↥ Xuất CSV</button>
+    </div>
+
+    <div style="overflow:auto;max-height:60vh;border:1px solid var(--border);border-radius:10px">
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th style="width:80px">User ID</th>
+            <th>Họ tên</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>CCCD</th>
+            <th>Ngày vào</th>
+            <th>Lương</th>
+            <th>Hành động</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="pager">
+      <button id="prev" class="btn dark">◀ Trước</button>
+      <span id="page_info" class="pill">Trang 1</span>
+      <button id="next" class="btn dark">Sau ▶</button>
+    </div>
+
+    <div id="msg_dash" class="muted" style="margin-top:10px"></div>
+  </div>
+
+</div>
+
+<script>
+const API_BASE = '/the20/profile/';
+const $ = s=>document.querySelector(s);
+const F = [
+  'full_name','email','cccd','date_of_birth','address','temporary_address','first_day_in_job',
+  'salary','phone','emergency_contact','emergency_phone','degree','old_company','tax_code',
+  'bhxh','car','doc_link','picture_link','offer_content','note'
+];
+
+function collect() {
+  const data={}; F.forEach(k=>{ data[k] = $('#'+k).value || null; });
+  if(data.salary!==null && data.salary!=='') data.salary = parseFloat(data.salary);
+  return data;
+}
+function fill(d) {
+  F.forEach(k=>{
+    const v = d && d[k]!=null ? d[k] : '';
+    $('#'+k).value = (k.includes('date') && v && (''+v).length>10) ? (''+v).slice(0,10) : v;
+  });
+  if(d && d.user_id!=null){ $('#user_id').value = d.user_id; }
+}
+async function loadProfile(){
+  const id = $('#user_id').value.trim(); if(!id){$('#msg').textContent='⚠️ Nhập user_id';return;}
+  $('#msg').textContent='Đang tải...';
+  const res = await fetch(`${API_BASE}${id}/`);
+  if(!res.ok){ $('#msg').textContent='❌ Không tải được hồ sơ'; return; }
+  const data = await res.json();
+  fill(data); $('#msg').textContent='✅ Đã tải hồ sơ';
+}
+async function saveProfile(){
+  const id = $('#user_id').value.trim(); if(!id){$('#msg').textContent='⚠️ Nhập user_id';return;}
+  $('#msg').textContent='Đang lưu...';
+  const payload = collect();
+  const res = await fetch(`${API_BASE}${id}/`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
+  $('#msg').textContent = res.ok ? '✅ Lưu thành công' : '❌ Lỗi khi lưu';
+}
+
+/* ===== Dashboard (Manager) ===== */
+let state = { page: 1, page_size: 50, q: '' };
+
+function fmtDate(s){ if(!s) return ''; const t = (''+s).slice(0,10); return t; }
+function fmtMoney(n){ if(n==null || n==='') return ''; const x = Number(n); return isNaN(x)? '': x.toLocaleString(); }
+
+async function reloadTable(){
+  $('#msg_dash').textContent='Đang tải danh sách...';
+  const url = new URL(location.origin + API_BASE);
+  url.searchParams.set('page', state.page);
+  url.searchParams.set('page_size', state.page_size);
+  if(state.q) url.searchParams.set('q', state.q);
+
+  const res = await fetch(url.toString());
+  if(!res.ok){ $('#msg_dash').textContent='❌ Không tải được danh sách'; return; }
+  const { total, page, page_size, results } = await res.json();
+  $('#sum').textContent = 'Tổng: ' + total;
+  $('#page_info').textContent = `Trang ${page}`;
+  const tb = $('#tbl tbody');
+  tb.innerHTML = '';
+
+  for(const r of results){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${r.user_id ?? ''}</td>
+      <td>${r.full_name ?? ''}</td>
+      <td>${r.email ?? ''}</td>
+      <td>${r.phone ?? ''}</td>
+      <td>${r.cccd ?? ''}</td>
+      <td>${fmtDate(r.first_day_in_job)}</td>
+      <td>${fmtMoney(r.salary)}</td>
+      <td>
+        <button class="btn dark btnEdit" data-id="${r.user_id}">Chỉnh</button>
+      </td>
+    `;
+    tb.appendChild(tr);
+  }
+
+  // gắn handler Edit
+  document.querySelectorAll('.btnEdit').forEach(btn=>{
+    btn.onclick = async (e)=>{
+      const id = e.currentTarget.getAttribute('data-id');
+      if(!id) return;
+      const res = await fetch(`${API_BASE}${id}/`);
+      if(!res.ok) return;
+      const data = await res.json();
+      fill(data);
+      // chuyển sang tab Profile để chỉnh
+      switchTab('profile');
+      $('#msg').textContent = '➡️ Đã nạp hồ sơ từ Dashboard';
+    }
+  });
+
+  $('#msg_dash').textContent = `✅ Đã tải ${results.length} bản ghi`;
+}
+
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('[id^="tab_"]').forEach(x=>x.classList.add('hidden'));
+  document.querySelector(`.tab[data-tab="${name}"]`).classList.add('active');
+  document.querySelector(`#tab_${name}`).classList.remove('hidden');
+}
+
+/* export CSV từ dữ liệu hiện trên trang */
+function toCSV(rows){
+  const header = ['user_id','full_name','email','phone','cccd','first_day_in_job','salary'];
+  const csv = [header.join(',')];
+  rows.forEach(r=>{
+    const line = [
+      r.user_id ?? '', (r.full_name??'').replaceAll(',',' '),
+      r.email ?? '', r.phone ?? '', r.cccd ?? '',
+      fmtDate(r.first_day_in_job), r.salary ?? ''
+    ].join(',');
+    csv.push(line);
+  });
+  return csv.join('\n');
+}
+async function exportCSV(){
+  const url = new URL(location.origin + API_BASE);
+  url.searchParams.set('page', state.page);
+  url.searchParams.set('page_size', state.page_size);
+  if(state.q) url.searchParams.set('q', state.q);
+  const res = await fetch(url.toString());
+  if(!res.ok) return;
+  const data = await res.json();
+  const blob = new Blob([toCSV(data.results)], {type: 'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `employee_profiles_p${data.page}.csv`;
+  a.click();
+}
+
+/* wiring */
+$('#btnLoad').onclick = loadProfile;
+$('#btnSave').onclick = saveProfile;
+
+document.querySelectorAll('.tab').forEach(tab=>{
+  tab.onclick = ()=>switchTab(tab.getAttribute('data-tab'));
+});
+
+$('#btnSearch').onclick = ()=>{
+  state.q = $('#q').value.trim();
+  state.page = 1;
+  state.page_size = parseInt($('#page_size').value || '50', 10);
+  reloadTable();
+};
+$('#prev').onclick = ()=>{ state.page = Math.max(1, state.page - 1); reloadTable(); };
+$('#next').onclick = ()=>{ state.page = state.page + 1; reloadTable(); };
+$('#page_size').onchange = ()=>{ state.page = 1; state.page_size = parseInt($('#page_size').value||'50',10); reloadTable(); };
+$('#btnExport').onclick = exportCSV;
+
+/* mặc định: mở tab Profile; nếu manager muốn xem, bấm Dashboard và tìm */
+</script>
+</body>
+</html>
