@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 def _mins(a: datetime, b: datetime) -> int:
     return max(0, int((b - a).total_seconds() // 60))
 
+
 def _compute_core_minutes(att: Attendance) -> tuple[int, int]:
     tmpl = att.shift_template
     if not tmpl:
@@ -59,6 +60,7 @@ def _compute_core_minutes(att: Attendance) -> tuple[int, int]:
 
     return worked, paid
 
+
 @transaction.atomic
 def recalc_and_save_core_minutes(*, attendance_id: int) -> Attendance:
     obj = _for_update(Attendance.objects.select_related("shift_template", "on_leave")).get(id=attendance_id)
@@ -69,12 +71,20 @@ def recalc_and_save_core_minutes(*, attendance_id: int) -> Attendance:
     return obj
 
 
+def _bool(v):  # nếu sau này bạn muốn đọc từ payload
+    if isinstance(v, bool): return v
+    if isinstance(v, str): return v.strip().lower() in ("1","true","yes","y","on")
+    if isinstance(v, (int,float)): return bool(v)
+    return False
+
+
 # ========= helper về DB lock =========
 def _supports_for_update() -> bool:
     return getattr(connection.features, "has_select_for_update", False)
 
 def _for_update(qs):
     return qs.select_for_update() if _supports_for_update() else qs
+
 
 # ========= helper về time window =========
 def _aware(dt: datetime) -> datetime:
@@ -88,7 +98,7 @@ def _window_for(att: Attendance) -> Tuple[datetime, datetime]:
     end_naive = datetime.combine(att.date, tmpl.end_time)
     if getattr(tmpl, "overnight", False) or tmpl.end_time <= tmpl.start_time:
         end_naive = end_naive + timedelta(days=1)
-    return _aware(start_naive), _aware(end_naive) # trả về 2 datetime aware
+    return _aware(start_naive), _aware(end_naive)  # trả về 2 datetime aware
 
 def _window_for_params(date_, tmpl: ShiftTemplate) -> Tuple[datetime, datetime]:
     start_naive = datetime.combine(date_, tmpl.start_time)
@@ -99,6 +109,7 @@ def _window_for_params(date_, tmpl: ShiftTemplate) -> Tuple[datetime, datetime]:
 
 def _overlap(a_start: datetime, a_end: datetime, b_start: datetime, b_end: datetime) -> bool:
     return not (a_end <= b_start or b_end <= a_start)
+
 
 # ========= kiểm tra trùng ca (pending/approved) =========
 _ACTIVE = {Attendance.Status.PENDING, Attendance.Status.APPROVED}
@@ -134,6 +145,7 @@ def _raise_if_conflict(employee_id: int, date_, tmpl: ShiftTemplate, exclude_id:
             details.append(f"[#{c.id}] {c.shift_template.code} {s:%Y-%m-%d %H:%M}→{e:%Y-%m-%d %H:%M} (status={c.get_status_display()})")
         raise ValueError(f"Trùng thời gian với bản ghi khác: {'; '.join(details)} (bước {when}).")
 
+
 # ========= tìm đơn nghỉ đã APPROVED bao phủ ngày =========
 def _find_approved_leave_for(employee_id: int, date_) -> Optional[LeaveRequest]:
     return (
@@ -148,6 +160,7 @@ def _find_approved_leave_for(employee_id: int, date_) -> Optional[LeaveRequest]:
         .order_by("-decision_ts", "-updated_at", "-id")
         .first()
     )
+
 
 # ========= contact (email + lark) =========
 def _resolve_contacts(employee_ids: List[int]) -> Dict[int, Dict[str, Any]]:
@@ -183,6 +196,7 @@ def _lark_webhook_url() -> Optional[str]:
 def _format_items_brief(atts: List[Attendance]) -> str:
     return "\n".join(f"- {_attendance_brief(a)}" for a in atts)
 
+
 # ========= CRUD + quyết định =========
 def create_attendance(
     *, employee_id: int, shift_template_id: int, date, ts_in=None, ts_out=None,
@@ -207,6 +221,7 @@ def create_attendance(
             on_leave=link_leave,
         )
         return obj
+
 
 def update_attendance(
     *, target_id: int, actor_employee_id: int,
@@ -270,6 +285,7 @@ def update_attendance(
 
         return obj
 
+
 def soft_delete_attendance(*, target_id: int) -> None:
     with transaction.atomic():
         obj = _for_update(Attendance.objects).get(id=target_id)
@@ -282,6 +298,7 @@ def restore_attendance(*, target_id: int) -> Attendance:
         obj.deleted_at = None
         obj.save(update_fields=["deleted_at", "updated_at"])
         return obj
+
 
 def cancel_by_employee(*, actor_user_id: int, target_id: int, actor_is_manager: bool = False) -> Attendance:
     with transaction.atomic():
@@ -297,6 +314,7 @@ def cancel_by_employee(*, actor_user_id: int, target_id: int, actor_is_manager: 
         obj.save(update_fields=["status", "is_valid", "approved_by", "approved_at", "updated_at"])
         return obj
 
+
 def approve_attendance(*, manager_user_id: int, target_id: int, override_overlap: bool = False) -> Attendance:
     with transaction.atomic():
         obj = _for_update(Attendance.objects.select_related("shift_template")).get(id=target_id)
@@ -307,12 +325,14 @@ def approve_attendance(*, manager_user_id: int, target_id: int, override_overlap
         _ = recalc_and_save_core_minutes(attendance_id=obj.id)
         return obj
 
+
 def reject_attendance(*, manager_user_id: int, target_id: int, reason: str = "") -> Attendance:
     with transaction.atomic():
         obj = _for_update(Attendance.objects).get(id=target_id)
         obj.reject(manager_user_id, reason)
         obj.save(update_fields=["status", "is_valid", "approved_by", "approved_at", "reject_reason", "updated_at"])
         return obj
+
 
 def manager_cancel_attendance(*, manager_user_id: int, target_id: int, reason: str = "") -> Attendance:
     with transaction.atomic():
@@ -326,13 +346,16 @@ def manager_cancel_attendance(*, manager_user_id: int, target_id: int, reason: s
         obj.save(update_fields=["status", "is_valid", "approved_by", "approved_at", "reject_reason", "updated_at"])
         return obj
 
+
 # ========= ALL-OR-NOTHING batch register =========
 def batch_register_attendance(
     *, employee_id: int,
     items: List[Dict[str, Any]],
     default_source: int,
     default_work_mode: int,
-    default_bonus
+    default_bonus,
+    send_email: bool = False,  # NEW toggle (mặc định không gửi)
+    send_lark: bool = False    # NEW toggle (mặc định không gửi)
 ):
     created: List[Attendance] = []
     errors: List[Dict[str, Any]] = []
@@ -417,29 +440,40 @@ def batch_register_attendance(
                 )
             )
 
-    # Notify (giữ logic cũ)
+    # Notify (theo công tắc)
     try:
         brief = _format_items_brief(created)
         text = f"[Attendance] Nhân viên #{employee_id} vừa đăng ký {len(created)} ca:\n{brief}"
-        ok = send_lark_notification(
-            text=text,
-            webhook_url=_lark_webhook_url(),
-            object_type="AttendanceBatchRegister",
-            object_id=str(employee_id),
-            to_user=employee_id,
-        )
-        if ok:
-            logger.info("[attendance] Lark sent (batch-register) for employee_id=%s, items=%s", employee_id, len(created))
-        else:
-            logger.warning("[attendance] Lark send FAILED (batch-register) for employee_id=%s", employee_id)
+
+        if send_lark:
+            ok = send_lark_notification(
+                text=text,
+                webhook_url=_lark_webhook_url(),
+                object_type="AttendanceBatchRegister",
+                object_id=str(employee_id),
+                to_user=employee_id,
+            )
+            if ok:
+                logger.info("[attendance] Lark sent (batch-register) for employee_id=%s, items=%s", employee_id, len(created))
+            else:
+                logger.warning("[attendance] Lark send FAILED (batch-register) for employee_id=%s", employee_id)
+
+        if send_email:
+            # Tuỳ yêu cầu business, có thể gửi xác nhận cho chính nhân viên hoặc nhóm HR.
+            # Để tránh thay đổi hành vi cũ, chưa bật gửi email ở đây.
+            pass
+
     except Exception as ex:
-        logger.exception("[attendance] Lark notify exception (batch-register): %s", ex)
+        logger.exception("[attendance] Notify exception (batch-register): %s", ex)
 
     return created, []
 
+
 def batch_decide_attendance(
     *, manager_user_id: int,
-    items: list
+    items: list,
+    send_email: bool = True,  # NEW toggle (mặc định gửi)
+    send_lark: bool = True    # NEW toggle (mặc định gửi)
 ):
     updated: List[Attendance] = []
     errors: List[Dict[str, Any]] = []
@@ -463,7 +497,7 @@ def batch_decide_attendance(
         except Exception as e:
             errors.append({"index": idx, "id": it.get("id"), "error": str(e)})
 
-    # Notify giữ nguyên
+    # Notify theo công tắc
     try:
         approved_by_emp: Dict[int, List[Attendance]] = {}
         for a in updated:
@@ -474,55 +508,59 @@ def batch_decide_attendance(
             emp_ids = list(approved_by_emp.keys())
             contacts = _resolve_contacts(emp_ids)
 
-            total = sum(len(v) for v in approved_by_emp.values())
-            lines = [f"[Attendance] Manager #{manager_user_id} đã DUYỆT {total} ca cho {len(approved_by_emp)} nhân viên:"]
-            at_user_ids: List[str] = []
-            for emp_id, atts in approved_by_emp.items():
-                lines.append(f"- Nhân viên #{emp_id}: {len(atts)} ca")
-                open_id = (contacts.get(emp_id) or {}).get("lark_open_id") or ""
-                if open_id:
-                    at_user_ids.append(open_id)
+            if send_lark:
+                total = sum(len(v) for v in approved_by_emp.values())
+                lines = [f"[Attendance] Manager #{manager_user_id} đã DUYỆT {total} ca cho {len(approved_by_emp)} nhân viên:"]
+                at_user_ids: List[str] = []
+                for emp_id, atts in approved_by_emp.items():
+                    lines.append(f"- Nhân viên #{emp_id}: {len(atts)} ca")
+                    open_id = (contacts.get(emp_id) or {}).get("lark_open_id") or ""
+                    if open_id:
+                        at_user_ids.append(open_id)
 
-            ok = send_lark_notification(
-                text="\n".join(lines),
-                at_user_ids=at_user_ids if at_user_ids else None,
-                webhook_url=_lark_webhook_url(),
-                object_type="AttendanceBatchDecide",
-                object_id=str(manager_user_id),
-                to_user=manager_user_id,
-            )
-            if ok:
-                logger.info("[attendance] Lark sent (batch-decide) manager_id=%s, total=%s", manager_user_id, total)
-            else:
-                logger.warning("[attendance] Lark send FAILED (batch-decide) manager_id=%s", manager_user_id)
+                ok = send_lark_notification(
+                    text="\n".join(lines),
+                    at_user_ids=at_user_ids if at_user_ids else None,
+                    webhook_url=_lark_webhook_url(),
+                    object_type="AttendanceBatchDecide",
+                    object_id=str(manager_user_id),
+                    to_user=manager_user_id,
+                )
+                if ok:
+                    logger.info("[attendance] Lark sent (batch-decide) manager_id=%s, total=%s", manager_user_id, total)
+                else:
+                    logger.warning("[attendance] Lark send FAILED (batch-decide) manager_id=%s", manager_user_id)
 
-            for emp_id, atts in approved_by_emp.items():
-                emails = (contacts.get(emp_id) or {}).get("emails") or []
-                subject = "Ca làm việc của bạn đã được duyệt"
-                brief = _format_items_brief(atts)
-                text_body = (
-                    f"Xin chào,\n\n"
-                    f"Các ca sau đã được quản lý (ID {manager_user_id}) duyệt:\n"
-                    f"{brief}\n\n"
-                    f"Trân trọng."
-                )
-                html_body = (
-                    "<p>Xin chào,</p>"
-                    f"<p>Các ca sau đã được quản lý (ID <b>{manager_user_id}</b>) duyệt:</p>"
-                    f"<pre style='background:#f6f8fa;padding:12px;border-radius:8px'>{brief}</pre>"
-                    "<p>Trân trọng.</p>"
-                )
-                ok_mail = send_email_notification(
-                    subject=subject,
-                    text_body=text_body,
-                    html_body=html_body,
-                    to_emails=emails,
-                    object_type="AttendanceApproved",
-                    object_id=str(emp_id),
-                    to_user=emp_id,
-                )
-                logger.info("[attendance] Email %s for employee_id=%s (items=%s)",
-                            "SENT" if ok_mail else "FAILED", emp_id, len(atts))
+            if send_email:
+                for emp_id, atts in approved_by_emp.items():
+                    emails = (contacts.get(emp_id) or {}).get("emails") or []
+                    if not emails:
+                        continue
+                    subject = "Ca làm việc của bạn đã được duyệt"
+                    brief = _format_items_brief(atts)
+                    text_body = (
+                        f"Xin chào,\n\n"
+                        f"Các ca sau đã được quản lý (ID {manager_user_id}) duyệt:\n"
+                        f"{brief}\n\n"
+                        f"Trân trọng."
+                    )
+                    html_body = (
+                        "<p>Xin chào,</p>"
+                        f"<p>Các ca sau đã được quản lý (ID <b>{manager_user_id}</b>) duyệt:</p>"
+                        f"<pre style='background:#f6f8fa;padding:12px;border-radius:8px'>{brief}</pre>"
+                        "<p>Trân trọng.</p>"
+                    )
+                    ok_mail = send_email_notification(
+                        subject=subject,
+                        text_body=text_body,
+                        html_body=html_body,
+                        to_emails=emails,
+                        object_type="AttendanceApproved",
+                        object_id=str(emp_id),
+                        to_user=emp_id,
+                    )
+                    logger.info("[attendance] Email %s for employee_id=%s (items=%s)",
+                                "SENT" if ok_mail else "FAILED", emp_id, len(atts))
     except Exception as ex:
         logger.exception("[attendance] Notify exception (batch-decide): %s", ex)
 

@@ -41,17 +41,13 @@ class HandoverViewSet(viewsets.ModelViewSet):
         return Response(HandoverItemSerializer(it).data, status=status.HTTP_201_CREATED)
 
     def update(self, request, *args, **kwargs):
-        # partial update cho status/due_date/note...
         kwargs["partial"] = True
         return super().update(request, *args, **kwargs)
 
 
 class HandoverItemViewSet(viewsets.ViewSet):
-    """
-    Các thao tác trên Item đều đi qua service
-    """
+    """Các thao tác trên Item đều đi qua service"""
 
-    # POST /the20/handover-items/set-status/
     @action(detail=False, methods=["post"])
     def set_status(self, request):
         item_id = int(request.data["item_id"])

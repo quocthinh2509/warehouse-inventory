@@ -29,16 +29,19 @@ from erp_the20.selectors.leave_selector import (
     list_my_leaves,
     list_pending_for_manager,
     filter_leaves,
-    # get_all_manager,
 )
 
-# optional auth helpers
 try:
     from erp_the20.selectors.user_selector import is_employee_manager, get_external_users_map
 except Exception:
     def is_employee_manager(_): return False
     def get_external_users_map(_): return {}
 
+def _to_bool(v):
+    if isinstance(v, bool): return v
+    if isinstance(v, str): return v.strip().lower() in ("1","true","yes","y","on")
+    if isinstance(v, (int,float)): return bool(v)
+    return False
 # ---- OpenAPI common params for pagination
 PAGE_PARAMS = [
     OpenApiParameter("page", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False, description="Trang (mặc định 1)"),
@@ -125,14 +128,18 @@ class LeaveRequestViewSet(
         ser = LeaveCreateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         try:
-            obj = svc_create_leave(**ser.validated_data)
+            obj = svc_create_leave(
+                **ser.validated_data,
+                # NEW flags (giữ hành vi cũ: gửi cả email + lark)
+                send_email=_to_bool(request.data.get("send_email", True)),
+                send_lark=_to_bool(request.data.get("send_lark", True)),
+            )
         except Exception as e:
             return Response({"detail": str(e)}, status=400)
         umap = get_external_users_map([obj.employee_id, getattr(obj, "handover_to_employee_id", None)])
         return Response(LeaveRequestReadSerializer(obj, context={"user_map": umap}).data, status=201)
 
     def update(self, request, pk=None):
-        # KHÔNG đẩy 'id' thừa vào serializer để tránh lỗi "unexpected field"
         ser = LeaveUpdateSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         try:
@@ -158,18 +165,21 @@ class LeaveRequestViewSet(
             return Response({"detail": str(e)}, status=400)
         return Response(status=204)
 
-    @extend_schema(
-        tags=["Leave"],
-        summary="Huỷ đơn (employee)",
-        request=LeaveCancelSerializer,
-        responses={200: LeaveRequestReadSerializer, 400: OpenApiResponse()},
-    )
+    @extend_schema(tags=["Leave"], summary="Huỷ đơn (employee)",
+                   request=LeaveCancelSerializer, responses={200: LeaveRequestReadSerializer})
     @action(detail=True, methods=["put"], url_path="cancel")
     def cancel(self, request, pk=None):
         ser = LeaveCancelSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         try:
-            obj = svc_cancel_leave(leave_id=int(pk), actor_employee_id=ser.validated_data["employee_id"], as_manager=False)
+            obj = svc_cancel_leave(
+                leave_id=int(pk),
+                actor_employee_id=ser.validated_data["employee_id"],
+                as_manager=False,
+                # NEW flags
+                send_email=_to_bool(request.data.get("send_email", True)),
+                send_lark=_to_bool(request.data.get("send_lark", True)),
+            )
         except PermissionError as e:
             return Response({"detail": str(e)}, status=403)
         except Exception as e:
@@ -177,13 +187,9 @@ class LeaveRequestViewSet(
         umap = get_external_users_map([obj.employee_id, getattr(obj, "handover_to_employee_id", None)])
         return Response(LeaveRequestReadSerializer(obj, context={"user_map": umap}).data)
 
-    @extend_schema(
-        tags=["Leave"],
-        summary="Quản lý phê duyệt / từ chối",
-        description="`approve=true` → APPROVED, `false` → REJECTED",
-        request=LeaveManagerDecisionSerializer,
-        responses={200: LeaveRequestReadSerializer, 400: OpenApiResponse()},
-    )
+    @extend_schema(tags=["Leave"], summary="Quản lý phê duyệt / từ chối",
+                   description="`approve=true` → APPROVED, `false` → REJECTED",
+                   request=LeaveManagerDecisionSerializer, responses={200: LeaveRequestReadSerializer})
     @action(detail=True, methods=["put"], url_path="decide")
     def decide(self, request, pk=None):
         ser = LeaveManagerDecisionSerializer(data=request.data)
@@ -193,7 +199,14 @@ class LeaveRequestViewSet(
         if not is_employee_manager(manager_id):
             return Response({"detail": "Manager privilege required."}, status=403)
         try:
-            obj = svc_manager_decide(leave_id=int(pk), manager_id=manager_id, approve=approve)
+            obj = svc_manager_decide(
+                leave_id=int(pk),
+                manager_id=manager_id,
+                approve=approve,
+                # NEW flags
+                send_email=_to_bool(request.data.get("send_email", True)),
+                send_lark=_to_bool(request.data.get("send_lark", True)),
+            )
         except Exception as e:
             return Response({"detail": str(e)}, status=400)
         umap = get_external_users_map([obj.employee_id, getattr(obj, "handover_to_employee_id", None)])

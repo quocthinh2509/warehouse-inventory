@@ -17,18 +17,23 @@ class NotificationViewSet(viewsets.ViewSet):
         return Response(NotificationSerializer(qs, many=True).data)
 
     # POST /the20/notifications/send   (gửi in-app + email + lark)
-    # body:
-    # {
-    #   "title": "Thông báo",
-    #   "recipients": [1,2], "to_user": 7,
-    #   "payload": {"body":"Nội dung..."},
-    #   "object_type": "general", "object_id": "123",
-    #   "email_subject": "...", "email_text": "...", "email_html": "<b>...</b>",
-    #   "lark_text": "..."
-    # }
     @action(detail=False, methods=["post"])
     def send(self, request):
         data = request.data
+
+        # NEW: parse boolean (mặc định False)
+        def _to_bool(v):
+            if isinstance(v, bool):
+                return v
+            if isinstance(v, str):
+                return v.strip().lower() in ("1","true","yes","y","on")
+            if isinstance(v, (int, float)):
+                return bool(v)
+            return False
+
+        send_email = _to_bool(data.get("send_email", False))
+        send_lark  = _to_bool(data.get("send_lark", False))
+
         obj = svc.send_broadcast_inapp_email_lark(
             title=data["title"],
             recipients=data.get("recipients"),
@@ -36,6 +41,8 @@ class NotificationViewSet(viewsets.ViewSet):
             payload=data.get("payload"),
             object_type=data.get("object_type",""),
             object_id=data.get("object_id",""),
+            send_email=send_email,
+            send_lark=send_lark,
             email_subject=data.get("email_subject"),
             email_text=data.get("email_text"),
             email_html=data.get("email_html"),

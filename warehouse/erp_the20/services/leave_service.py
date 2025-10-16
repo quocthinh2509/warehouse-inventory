@@ -25,7 +25,6 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
-# ====== Policy: loại nghỉ được xem là "off" để link vào Attendance khi approve ======
 APPROVABLE_OFF_TYPES = {
     LeaveRequest.LeaveType.ANNUAL,
     LeaveRequest.LeaveType.UNPAID,
@@ -33,8 +32,7 @@ APPROVABLE_OFF_TYPES = {
     LeaveRequest.LeaveType.PAID_SPECIAL,
 }
 
-# ====== Notify helpers (giữ từ bản cũ, rút gọn nội dung) ======
-def _notify_manager_new_leave(leave: LeaveRequest, manager_id: int) -> None:
+def _notify_manager_new_leave(leave: LeaveRequest, manager_id: int, *, send_email: bool, send_lark: bool) -> None:
     email = get_employee_email(manager_id)
     name_emp = get_employee_fullname(leave.employee_id) or f"Emp#{leave.employee_id}"
     subject = f"[Leave] New request from {name_emp}"
@@ -54,7 +52,7 @@ def _notify_manager_new_leave(leave: LeaveRequest, manager_id: int) -> None:
         f"Reason: {leave.reason or '-'}{extra}\n"
     )
 
-    if email:
+    if send_email and email:
         send_email_notification(
             subject=subject,
             text_body=text,
@@ -70,27 +68,28 @@ def _notify_manager_new_leave(leave: LeaveRequest, manager_id: int) -> None:
     except Exception:
         at_uid = None
 
-    lark_text = (
-        "📝 NEW LEAVE\n"
-        f"• Emp: {name_emp} (#{leave.employee_id})\n"
-        f"• Type: {leave.get_leave_type_display()} | Paid: {'Yes' if leave.paid else 'No'}\n"
-        f"• Period: {period}\n"
-        f"• Hours: {leave.hours or '-'}\n"
-        f"• Reason: {leave.reason or '-'}"
-    )
-    if extra_lines:
-        lark_text += "\n• " + " / ".join(extra_lines)
+    if send_lark:
+        lark_text = (
+            "📝 NEW LEAVE\n"
+            f"• Emp: {name_emp} (#{leave.employee_id})\n"
+            f"• Type: {leave.get_leave_type_display()} | Paid: {'Yes' if leave.paid else 'No'}\n"
+            f"• Period: {period}\n"
+            f"• Hours: {leave.hours or '-'}\n"
+            f"• Reason: {leave.reason or '-'}"
+        )
+        if extra_lines:
+            lark_text += "\n• " + " / ".join(extra_lines)
 
-    send_lark_notification(
-        text=lark_text,
-        at_user_ids=[at_uid] if at_uid else None,
-        object_type="leave_request",
-        object_id=str(leave.id),
-        to_user=manager_id,
-        to_lark_user_id=at_uid or "",
-    )
+        send_lark_notification(
+            text=lark_text,
+            at_user_ids=[at_uid] if at_uid else None,
+            object_type="leave_request",
+            object_id=str(leave.id),
+            to_user=manager_id,
+            to_lark_user_id=at_uid or "",
+        )
 
-def _notify_employee_decision(leave: LeaveRequest, manager_id: int) -> None:
+def _notify_employee_decision(leave: LeaveRequest, manager_id: int, *, send_email: bool, send_lark: bool) -> None:
     email = get_employee_email(leave.employee_id)
     name_emp = get_employee_fullname(leave.employee_id) or f"Emp#{leave.employee_id}"
     subject = f"[Leave] {leave.get_status_display()} — {leave.start_date} → {leave.end_date}"
@@ -101,7 +100,7 @@ def _notify_employee_decision(leave: LeaveRequest, manager_id: int) -> None:
         f"Period: {leave.start_date} → {leave.end_date}; Hours: {leave.hours or '-'}\n"
         f"Reason: {leave.reason or '-'}\n"
     )
-    if email:
+    if send_email and email:
         send_email_notification(
             subject=subject,
             text_body=text,
@@ -117,27 +116,28 @@ def _notify_employee_decision(leave: LeaveRequest, manager_id: int) -> None:
     except Exception:
         at_uid = None
 
-    lark_text = (
-        f"✅ LEAVE {leave.get_status_display().upper()}\n"
-        f"• Emp: {name_emp} (#{leave.employee_id})\n"
-        f"• Type: {leave.get_leave_type_display()} | Paid: {'Yes' if leave.paid else 'No'}\n"
-        f"• Period: {leave.start_date} → {leave.end_date}\n"
-        f"• Hours: {leave.hours or '-'}"
-    )
-    send_lark_notification(
-        text=lark_text,
-        at_user_ids=[at_uid] if at_uid else None,
-        object_type="leave_request",
-        object_id=str(leave.id),
-        to_user=leave.employee_id,
-        to_lark_user_id=at_uid or "",
-    )
+    if send_lark:
+        lark_text = (
+            f"✅ LEAVE {leave.get_status_display().upper()}\n"
+            f"• Emp: {name_emp} (#{leave.employee_id})\n"
+            f"• Type: {leave.get_leave_type_display()} | Paid: {'Yes' if leave.paid else 'No'}\n"
+            f"• Period: {leave.start_date} → {leave.end_date}\n"
+            f"• Hours: {leave.hours or '-'}"
+        )
+        send_lark_notification(
+            text=lark_text,
+            at_user_ids=[at_uid] if at_uid else None,
+            object_type="leave_request",
+            object_id=str(leave.id),
+            to_user=leave.employee_id,
+            to_lark_user_id=at_uid or "",
+        )
 
-# ====== Business services ======
 def create_leave(
     *, employee_id: int, manager_id: int, leave_type: int, start_date, end_date,
     paid: bool = False, hours: Optional[float] = None, reason: str = "",
-    handover_to_employee_id: Optional[int] = None, handover_content: Optional[str] = None
+    handover_to_employee_id: Optional[int] = None, handover_content: Optional[str] = None,
+    send_email: bool = True, send_lark: bool = True,
 ) -> LeaveRequest:
     if end_date < start_date:
         raise ValueError("end_date phải >= start_date.")
@@ -159,28 +159,23 @@ def create_leave(
         "handover_content": handover_content or None,
     })
 
-    # notify (ngoài transaction)
     try:
-        _notify_manager_new_leave(obj, manager_id)
+        _notify_manager_new_leave(obj, manager_id, send_email=send_email, send_lark=send_lark)
     except Exception as ex:
         logger.warning("[leave] notify manager failed: %s", ex)
     return obj
 
 def update_leave(*, leave_id: int, employee_id: int, **changes: Any) -> LeaveRequest:
-    # không cho sửa các field quản trị / khoá
     for k in ("employee_id","status","decision_ts","decided_by","id","pk","created_at","updated_at"):
         changes.pop(k, None)
 
     obj = repo.get_by_id(leave_id)
-    # Rule: chỉ chủ đơn (hoặc manager ở API khác) được sửa khi SUBMITTED
     if obj.employee_id != employee_id or obj.status != LeaveRequest.Status.SUBMITTED or obj.decision_ts is not None:
         raise ValueError("Chỉ thao tác khi đơn SUBMITTED của chính bạn (chưa có quyết định).")
 
-    # áp thay đổi
     allowed = {"paid","leave_type","start_date","end_date","hours","reason","handover_to_employee_id","handover_content"}
     obj = repo.save_fields(obj, changes, allowed=allowed)
 
-    # kiểm tra lại date range
     if obj.end_date < obj.start_date:
         raise ValueError("end_date phải >= start_date.")
 
@@ -192,7 +187,8 @@ def delete_leave(*, leave_id: int, employee_id: int) -> None:
         raise ValueError("Chỉ xoá được đơn SUBMITTED của chính bạn.")
     repo.delete_leave(obj)
 
-def cancel_leave(*, leave_id: int, actor_employee_id: int, as_manager: bool = False) -> LeaveRequest:
+def cancel_leave(*, leave_id: int, actor_employee_id: int, as_manager: bool = False,
+                 send_email: bool = True, send_lark: bool = True) -> LeaveRequest:
     obj = repo.get_by_id(leave_id)
     if not as_manager and obj.employee_id != actor_employee_id:
         raise PermissionError("Bạn không có quyền huỷ đơn nghỉ này.")
@@ -203,17 +199,17 @@ def cancel_leave(*, leave_id: int, actor_employee_id: int, as_manager: bool = Fa
     obj = repo.cancel(leave_id=leave_id, actor_employee_id=actor_employee_id)
 
     try:
-        _notify_employee_decision(obj, manager_id=actor_employee_id)
+        _notify_employee_decision(obj, manager_id=actor_employee_id, send_email=send_email, send_lark=send_lark)
     except Exception as ex:
         logger.warning("[leave] notify employee cancel failed: %s", ex)
     return obj
 
-def manager_decide(*, leave_id: int, manager_id: int, approve: bool) -> LeaveRequest:
+def manager_decide(*, leave_id: int, manager_id: int, approve: bool,
+                   send_email: bool = True, send_lark: bool = True) -> LeaveRequest:
     obj = repo.get_by_id(leave_id)
     if obj.status != LeaveRequest.Status.SUBMITTED:
         raise ValueError("Chỉ quyết định đơn ở trạng thái SUBMITTED.")
 
-    # Nếu approve và loại nghỉ là OFF-type thì link vào Attendance
     do_link = obj.leave_type in APPROVABLE_OFF_TYPES
 
     if approve:
@@ -222,7 +218,7 @@ def manager_decide(*, leave_id: int, manager_id: int, approve: bool) -> LeaveReq
         obj = repo.reject(leave_id=leave_id, manager_id=manager_id)
 
     try:
-        _notify_employee_decision(obj, manager_id=manager_id)
+        _notify_employee_decision(obj, manager_id=manager_id, send_email=send_email, send_lark=send_lark)
     except Exception as ex:
         logger.warning("[leave] notify employee decision failed: %s", ex)
 

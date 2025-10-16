@@ -6,6 +6,12 @@ from erp_the20.models import Proposal
 from erp_the20.serializers.proposal_serializer import ProposalSerializer
 from erp_the20.services import proposal_service as svc
 
+def _to_bool(v):
+    if isinstance(v, bool): return v
+    if isinstance(v, str): return v.strip().lower() in ("1","true","yes","y","on")
+    if isinstance(v, (int,float)): return bool(v)
+    return False
+
 class ProposalViewSet(viewsets.ModelViewSet):
     queryset = Proposal.objects.all().order_by("-created_at")
     serializer_class = ProposalSerializer
@@ -18,6 +24,9 @@ class ProposalViewSet(viewsets.ModelViewSet):
             title=d["title"],
             content=d.get("content",""),
             manager_id=int(d["manager_id"]) if d.get("manager_id") else None,
+            # NEW flags (mặc định: email=True, lark=False)
+            send_email=_to_bool(d.get("send_email", True)),
+            send_lark=_to_bool(d.get("send_lark", False)),
         )
         return Response(ProposalSerializer(p).data, status=status.HTTP_201_CREATED)
 

@@ -27,7 +27,7 @@ from erp_the20.selectors.attendance_selector import (
     filter_attendances,
     list_my_pending,
     list_pending_for_manager,
-    list_shift_options,   # <-- NEW
+    list_shift_options,
 )
 from erp_the20.selectors.user_selector import (
     is_employee_manager,
@@ -43,8 +43,8 @@ from erp_the20.serializers.attendance_serializer import (
     CancelSerializer,
     ManagerCancelSerializer,
     SearchFiltersSerializer,
-    ShiftOptionSerializer,   # <-- NEW
-    PunchSerializer,         # <-- NEW
+    ShiftOptionSerializer,
+    PunchSerializer,
 )
 from erp_the20.services.attendance_service import (
     approve_attendance,
@@ -58,6 +58,12 @@ from erp_the20.services.attendance_service import (
     soft_delete_attendance,
     update_attendance,
 )
+
+def _to_bool(v):
+    if isinstance(v, bool): return v
+    if isinstance(v, str): return v.strip().lower() in ("1","true","yes","y","on")
+    if isinstance(v, (int,float)): return bool(v)
+    return False
 
 
 # -----------------------
@@ -486,50 +492,28 @@ class AttendanceViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
     @extend_schema(
         tags=["Attendance"],
         summary="Đăng ký hàng loạt (ALL-OR-NOTHING)",
-        description=(
-            "Nhận danh sách (date, shift_template[, ts_in, ts_out]) và tạo nhiều Attendance PENDING. "
-            "All-or-nothing: nếu có bất kỳ lỗi (trùng giờ nội bộ payload hoặc trùng với DB), hệ thống sẽ trả 400 "
-            "và KHÔNG tạo bản ghi nào."
-        ),
         request=BatchRegisterSerializer,
         responses={
             201: OpenApiResponse(description="All created"),
             400: OpenApiResponse(description="Validation error(s), none created")
         },
-        examples=[
-            OpenApiExample(
-                "Batch register next week",
-                value={
-                    "employee_id": 204,
-                    "default_source": 0,
-                    "default_work_mode": 0,
-                    "default_bonus": "0.00",
-                    "items": [
-                        {"date": "2025-10-13", "shift_template": 3},
-                        {"date": "2025-10-14", "shift_template": 3},
-                        {"date": "2025-10-15", "shift_template": 5, "ts_in": "2025-10-15T08:00:00Z", "ts_out": "2025-10-15T17:00:00Z"},
-                    ],
-                },
-                request_only=True,
-            )
-        ],
     )
     @action(detail=False, methods=["post"], url_path="batch-register")
     def batch_register(self, request):
-        payload = request.data  # DRF đã parse dict/list từ JSON/Form
-        # Phòng trường hợp client gửi raw bytes/string và Content-Type sai:
+        payload = request.data
         if isinstance(payload, (bytes, str)):
             try:
                 payload = json.loads(payload)
             except Exception:
-                return Response(
-                    {"detail": "Invalid JSON payload."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+                return Response({"detail": "Invalid JSON payload."}, status=status.HTTP_400_BAD_REQUEST)
 
         ser = BatchRegisterSerializer(data=payload)
         ser.is_valid(raise_exception=True)
         data = ser.validated_data
+
+        # NEW: flags (mặc định giữ hành vi cũ của service: send_email=False, send_lark=False)
+        send_email = _to_bool(request.data.get("send_email", False))
+        send_lark  = _to_bool(request.data.get("send_lark", False))
 
         created, errors = batch_register_attendance(
             employee_id=data["employee_id"],
@@ -537,42 +521,22 @@ class AttendanceViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
             default_source=data["default_source"],
             default_work_mode=data["default_work_mode"],
             default_bonus=data.get("default_bonus") or "0.00",
+            send_email=send_email,
+            send_lark=send_lark,
         )
-
         payload_out = {
             "created": AttendanceReadSerializer(
-                created,
-                many=True,
-                context={"users_map": _build_users_map_from_objs(created)},
+                created, many=True, context={"users_map": _build_users_map_from_objs(created)}
             ).data,
             "errors": errors,
         }
-        return Response(
-            payload_out,
-            status=status.HTTP_201_CREATED if not errors else status.HTTP_400_BAD_REQUEST,
-        )
+        return Response(payload_out, status=status.HTTP_201_CREATED if not errors else status.HTTP_400_BAD_REQUEST)
 
-    # PUT /attendance/batch-decide/
     @extend_schema(
         tags=["Attendance"],
         summary="Manager duyệt/từ chối hàng loạt",
-        description="Mỗi item gồm id, approve(bool), reason?(reject), override_overlap?(approve). Partial success.",
         request=BatchDecisionSerializer,
-        responses={200: OpenApiResponse(description="Multi-Status (partial)"), 403: OpenApiResponse(), 400: OpenApiResponse()},
-        examples=[
-            OpenApiExample(
-                "Batch approve/reject",
-                value={
-                    "manager_id": 1,
-                    "items": [
-                        {"id": 101, "approve": True, "override_overlap": False},
-                        {"id": 102, "approve": False, "reason": "Sai ca"},
-                        {"id": 103, "approve": True, "override_overlap": True},
-                    ],
-                },
-                request_only=True,
-            )
-        ],
+        responses={200: OpenApiResponse(description="Multi-Status (partial)")},
     )
     @action(detail=False, methods=["put"], url_path="batch-decide")
     def batch_decide(self, request):
@@ -584,16 +548,24 @@ class AttendanceViewSet(viewsets.GenericViewSet, mixins.RetrieveModelMixin):
         if not is_employee_manager(manager_id):
             return Response({"detail": "Manager privilege required."}, status=status.HTTP_403_FORBIDDEN)
 
-        updated, errors = batch_decide_attendance(manager_user_id=manager_id, items=data["items"])
+        # NEW: flags (mặc định True để giữ hành vi cũ)
+        send_email = _to_bool(request.data.get("send_email", True))
+        send_lark  = _to_bool(request.data.get("send_lark", True))
+
+        updated, errors = batch_decide_attendance(
+            manager_user_id=manager_id,
+            items=data["items"],
+            send_email=send_email,
+            send_lark=send_lark,
+        )
         payload = {
             "updated": AttendanceReadSerializer(
-                updated,
-                many=True,
-                context={"users_map": _build_users_map_from_objs(updated)},
+                updated, many=True, context={"users_map": _build_users_map_from_objs(updated)}
             ).data,
             "errors": errors,
         }
         return Response(payload, status=status.HTTP_200_OK)
+
 
     # ===== NEW: Radio options =====
     @extend_schema(
